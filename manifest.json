@@ -1,0 +1,64 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "438DC9C4-BFBE-4F6F-ACF4-3F4F38DF288B",
+  "developer": {
+    "name": "Your Organisation",
+    "websiteUrl": "https://YOUR-DOMAIN",
+    "privacyUrl": "https://YOUR-DOMAIN/privacy",
+    "termsOfUseUrl": "https://YOUR-DOMAIN/terms"
+  },
+  "name": {
+    "short": "Planning Poker",
+    "full": "Planning Poker for Microsoft Teams"
+  },
+  "description": {
+    "short": "Anonymous sprint estimation, right in Teams",
+    "full": "Run Planning Poker sessions directly in Microsoft Teams. Vote anonymously with Fibonacci cards, import stories from CSV, add cards on the fly, and reveal votes together. Available as a channel Tab and a chat Bot."
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "accentColor": "#6d28d9",
+
+  "staticTabs": [
+    {
+      "entityId": "planningPokerTab",
+      "name": "Planning Poker",
+      "contentUrl": "https://YOUR-DOMAIN/tab",
+      "websiteUrl": "https://YOUR-DOMAIN/tab",
+      "scopes": ["team", "groupchat"]
+    }
+  ],
+
+  "bots": [
+    {
+      "botId": "YOUR-BOT-APP-ID-HERE",
+      "scopes": ["team", "groupchat"],
+      "supportsFiles": true,
+      "isNotificationOnly": false,
+      "commandLists": [
+        {
+          "scopes": ["team", "groupchat"],
+          "commands": [
+            { "title": "start",  "description": "Start a new estimation round" },
+            { "title": "vote",   "description": "Cast your vote privately" },
+            { "title": "reveal", "description": "Reveal all votes" },
+            { "title": "next",   "description": "Move to the next story" },
+            { "title": "status", "description": "Show current vote count" },
+            { "title": "deck",   "description": "Show the current deck" },
+            { "title": "add",    "description": "Add a card value to the deck" },
+            { "title": "end",    "description": "End the session and show summary" },
+            { "title": "help",   "description": "Show all commands" }
+          ]
+        }
+      ]
+    }
+  ],
+
+  "permissions": ["identity", "messageTeamMembers"],
+
+  "validDomains": ["YOUR-DOMAIN"]
+}
