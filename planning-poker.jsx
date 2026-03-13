@@ -79,7 +79,7 @@ function PokerCard({ value, selected, onClick, revealed, small }) {
   );
 }
 
-function VoteSlot({ name, voted, value, revealed }) {
+function VoteSlot({ name, voted, value, revealed, originalValue }) {
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 70,
@@ -95,10 +95,22 @@ function VoteSlot({ name, voted, value, revealed }) {
               boxShadow: "0 0 16px rgba(52,211,153,0.4)",
               animation: "flipIn 0.4s ease",
             }}>
-              <span style={{
-                fontSize: value?.length > 2 ? 14 : 22, fontWeight: 800,
-                color: "#fff", fontFamily: "monospace",
-              }}>{value}</span>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                <span style={{
+                  fontSize: value?.length > 2 ? 14 : 22, fontWeight: 800,
+                  color: "#fff", fontFamily: "monospace",
+                }}>{value}</span>
+                {originalValue && originalValue !== value && (
+                  <span style={{
+                    marginTop: 2,
+                    fontSize: 10,
+                    color: "rgba(255,255,255,0.8)",
+                    fontFamily: "monospace",
+                  }}>
+                    was {originalValue}
+                  </span>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ width: "100%", height: "100%" }}>
@@ -143,6 +155,7 @@ export default function PlanningPoker() {
   const [csvStories, setCsvStories] = useState([]);
   const [storyIndex, setStoryIndex] = useState(0);
   const [votes, setVotes] = useState({}); // { username: value }
+  const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
   const [participants, setParticipants] = useState(DEMO_USERS);
@@ -156,6 +169,7 @@ export default function PlanningPoker() {
     const story = allStories[0] || storyInput || "Story #1";
     setCurrentStory(story);
     setVotes({});
+    setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
     setStoryIndex(0);
@@ -179,7 +193,10 @@ export default function PlanningPoker() {
     setVotes(v => ({ ...v, [DEMO_USERS[0]]: val }));
   };
 
-  const reveal = () => setRevealed(true);
+  const reveal = () => {
+    setOriginalVotes({ ...votes });
+    setRevealed(true);
+  };
 
   const nextStory = () => {
     const next = storyIndex + 1;
@@ -190,6 +207,7 @@ export default function PlanningPoker() {
     setStoryIndex(next);
     setCurrentStory(story);
     setVotes({});
+    setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
     simulateVotes();
@@ -534,6 +552,7 @@ export default function PlanningPoker() {
                   voted={!!votes[p]}
                   value={votes[p]}
                   revealed={revealed}
+                  originalValue={originalVotes[p]}
                 />
               ))}
             </div>
@@ -575,7 +594,7 @@ export default function PlanningPoker() {
                   key={i}
                   value={c}
                   selected={myVote === c}
-                  onClick={() => !revealed && castVote(c)}
+                  onClick={() => castVote(c)}
                   revealed={revealed}
                 />
               ))}

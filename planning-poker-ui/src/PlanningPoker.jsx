@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from "react";
+import PropTypes from "prop-types";
 
 const PRESET_DECKS = {
   fibonacci: { label: "Fibonacci", cards: ["1", "3", "5", "8", "13", "?", "☕"] },
@@ -30,7 +31,6 @@ function CardBack() {
 function PokerCard({ value, selected, onClick, revealed, small }) {
   const w = small ? 44 : 64;
   const h = small ? 60 : 88;
-  const isSpecial = value === "?" || value === "☕";
   return (
     <div
       onClick={onClick}
@@ -79,7 +79,7 @@ function PokerCard({ value, selected, onClick, revealed, small }) {
   );
 }
 
-function VoteSlot({ name, voted, value, revealed }) {
+function VoteSlot({ name, voted, value, revealed, originalValue }) {
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 70,
@@ -95,10 +95,22 @@ function VoteSlot({ name, voted, value, revealed }) {
               boxShadow: "0 0 16px rgba(52,211,153,0.4)",
               animation: "flipIn 0.4s ease",
             }}>
-              <span style={{
-                fontSize: value?.length > 2 ? 14 : 22, fontWeight: 800,
-                color: "#fff", fontFamily: "monospace",
-              }}>{value}</span>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
+                <span style={{
+                  fontSize: value?.length > 2 ? 14 : 22, fontWeight: 800,
+                  color: "#fff", fontFamily: "monospace",
+                }}>{value}</span>
+                {originalValue && originalValue !== value && (
+                  <span style={{
+                    marginTop: 2,
+                    fontSize: 10,
+                    color: "rgba(255,255,255,0.8)",
+                    fontFamily: "monospace",
+                  }}>
+                    was {originalValue}
+                  </span>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ width: "100%", height: "100%" }}>
@@ -131,6 +143,22 @@ function VoteSlot({ name, voted, value, revealed }) {
   );
 }
 
+PokerCard.propTypes = {
+  value: PropTypes.string.isRequired,
+  selected: PropTypes.bool,
+  onClick: PropTypes.func,
+  revealed: PropTypes.bool,
+  small: PropTypes.bool,
+};
+
+VoteSlot.propTypes = {
+  name: PropTypes.string.isRequired,
+  voted: PropTypes.bool,
+  value: PropTypes.string,
+  revealed: PropTypes.bool,
+  originalValue: PropTypes.string,
+};
+
 export default function PlanningPoker() {
   const [view, setView] = useState("lobby"); // lobby | session | results
   const [deck, setDeck] = useState("fibonacci");
@@ -143,9 +171,10 @@ export default function PlanningPoker() {
   const [csvStories, setCsvStories] = useState([]);
   const [storyIndex, setStoryIndex] = useState(0);
   const [votes, setVotes] = useState({}); // { username: value }
+  const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
-  const [participants, setParticipants] = useState(DEMO_USERS);
+  const [participants] = useState(DEMO_USERS);
   const [history, setHistory] = useState([]);
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
@@ -156,6 +185,7 @@ export default function PlanningPoker() {
     const story = allStories[0] || storyInput || "Story #1";
     setCurrentStory(story);
     setVotes({});
+    setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
     setStoryIndex(0);
@@ -179,7 +209,10 @@ export default function PlanningPoker() {
     setVotes(v => ({ ...v, [DEMO_USERS[0]]: val }));
   };
 
-  const reveal = () => setRevealed(true);
+  const reveal = () => {
+    setOriginalVotes({ ...votes });
+    setRevealed(true);
+  };
 
   const nextStory = () => {
     const next = storyIndex + 1;
@@ -190,6 +223,7 @@ export default function PlanningPoker() {
     setStoryIndex(next);
     setCurrentStory(story);
     setVotes({});
+    setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
     simulateVotes();
@@ -534,6 +568,7 @@ export default function PlanningPoker() {
                   voted={!!votes[p]}
                   value={votes[p]}
                   revealed={revealed}
+                  originalValue={originalVotes[p]}
                 />
               ))}
             </div>
@@ -575,31 +610,11 @@ export default function PlanningPoker() {
                   key={i}
                   value={c}
                   selected={myVote === c}
-                  onClick={() => !revealed && castVote(c)}
+                  onClick={() => castVote(c)}
                   revealed={revealed}
                 />
               ))}
             </div>
-          </div>
-
-          {/* Add card on the fly */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center" }}>
-            <input
-              placeholder="Add card value on the fly..."
-              value={addCardInput}
-              onChange={e => setAddCardInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleAddCard()}
-              style={{
-                padding: "7px 12px", borderRadius: 8, fontSize: 12,
-                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                color: "#94a3b8", width: 200,
-              }}
-            />
-            <button onClick={handleAddCard} style={{
-              padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)",
-              color: "#64748b",
-            }}>+ Card</button>
           </div>
 
           {/* Actions */}
