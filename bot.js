@@ -11,6 +11,7 @@
  *   /poker status                   — Show current vote count
  *   /poker deck                     — Show current deck
  *   /poker add <value>              — Add a card to the deck
+ *   /poker jira <ISSUE-123>         — Load story details from Jira
  *   /poker end                      — End session and post summary
  *   /poker help                     — Show command list
  *
@@ -66,6 +67,64 @@ function voteStatusLine(session) {
 
 function deckDisplay(deck) {
   return deck.map(c => `\`${c}\``).join("  ");
+}
+
+function parseIssueKey(input) {
+  const match = String(input || "").toUpperCase().match(/([A-Z][A-Z0-9]+-\d+)/);
+  return match ? match[1] : null;
+}
+
+function jiraConfig() {
+  return {
+    baseUrl: process.env.JIRA_BASE_URL,
+    email: process.env.JIRA_EMAIL,
+    apiToken: process.env.JIRA_API_TOKEN,
+    bearerToken: process.env.JIRA_BEARER_TOKEN,
+  };
+}
+
+function hasJiraConfig(cfg) {
+  return Boolean(cfg.baseUrl && (cfg.bearerToken || (cfg.email && cfg.apiToken)));
+}
+
+async function fetchJiraIssue(issueKey) {
+  const cfg = jiraConfig();
+  if (!hasJiraConfig(cfg)) {
+    return { ok: false, error: "Jira not configured." };
+  }
+
+  const cleanBase = cfg.baseUrl.replace(/\/$/, "");
+  const url = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=summary,status,assignee,priority`;
+
+  const headers = { Accept: "application/json" };
+  if (cfg.bearerToken) {
+    headers.Authorization = `Bearer ${cfg.bearerToken}`;
+  } else {
+    const basic = Buffer.from(`${cfg.email}:${cfg.apiToken}`).toString("base64");
+    headers.Authorization = `Basic ${basic}`;
+  }
+
+  try {
+    const response = await fetch(url, { method: "GET", headers });
+    if (!response.ok) {
+      const body = await response.text();
+      return { ok: false, error: `Jira ${response.status}: ${body.slice(0, 180)}` };
+    }
+    const data = await response.json();
+    const fields = data.fields || {};
+    return {
+      ok: true,
+      issue: {
+        key: data.key,
+        summary: fields.summary || "(no summary)",
+        status: fields.status?.name || "Unknown",
+        assignee: fields.assignee?.displayName || "Unassigned",
+        priority: fields.priority?.name || "Unknown",
+      },
+    };
+  } catch (error) {
+    return { ok: false, error: error.message || String(error) };
+  }
 }
 
 // ─── Adaptive Card builders ───────────────────────────────────────────────────
@@ -202,6 +261,7 @@ class PlanningPokerBot extends ActivityHandler {
           "`/poker status`         — Show vote progress",
           "`/poker deck`           — Show current deck",
           "`/poker add <value>`    — Add a card to the deck",
+          "`/poker jira <key>`     — Pull issue details from Jira",
           "`/poker end`            — End session & show summary",
           "",
           "You can also use the **Tab** in this channel for a full visual interface.",
@@ -209,7 +269,17 @@ class PlanningPokerBot extends ActivityHandler {
 
       // ── /poker start [story] ─────────────────────────────────────────────
       } else if (lower.startsWith("/poker start")) {
-        const story = text.replace(/\/poker start\s*/i, "").trim() || `Round ${(session.history.length + 1)}`;
+        const input = text.replace(/\/poker start\s*/i, "").trim();
+        let story = input || `Round ${(session.history.length + 1)}`;
+
+        const issueKey = parseIssueKey(input);
+        if (issueKey) {
+          const jira = await fetchJiraIssue(issueKey);
+          if (jira.ok) {
+            story = `${jira.issue.key}: ${jira.issue.summary}`;
+          }
+        }
+
         session.active = true;
         session.currentStory = story;
         session.votes = {};
@@ -304,6 +374,33 @@ class PlanningPokerBot extends ActivityHandler {
             session.deck.push(value);
           }
           await context.sendActivity(MessageFactory.text(`Added \`${value}\` to the deck. New deck: ${deckDisplay(session.deck)}`));
+        }
+
+      // ── /poker jira <ISSUE-123> ─────────────────────────────────────────
+      } else if (lower.startsWith("/poker jira")) {
+        const issueKey = parseIssueKey(text.replace(/\/poker jira\s*/i, "").trim());
+        if (!issueKey) {
+          await context.sendActivity("Usage: `/poker jira <ISSUE-123>` e.g. `/poker jira PROJ-42`");
+        } else if (!hasJiraConfig(jiraConfig())) {
+          await context.sendActivity([
+            "Jira is not configured yet.",
+            "Set environment variables:",
+            "- `JIRA_BASE_URL` (e.g. `https://yourorg.atlassian.net`)",
+            "- `JIRA_BEARER_TOKEN` OR (`JIRA_EMAIL` + `JIRA_API_TOKEN`)",
+          ].join("\n"));
+        } else {
+          const jira = await fetchJiraIssue(issueKey);
+          if (!jira.ok) {
+            await context.sendActivity(`Couldn't load Jira issue ${issueKey}. ${jira.error}`);
+          } else {
+            const i = jira.issue;
+            await context.sendActivity(MessageFactory.text([
+              `**${i.key}: ${i.summary}**`,
+              `Status: ${i.status}`,
+              `Assignee: ${i.assignee}`,
+              `Priority: ${i.priority}`,
+            ].join("\n")));
+          }
         }
 
       // ── /poker end ───────────────────────────────────────────────────────
