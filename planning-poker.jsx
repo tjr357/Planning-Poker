@@ -8,6 +8,12 @@ const PRESET_DECKS = {
 };
 
 const DEMO_USERS = ["Alex", "Jordan", "Sam", "Riley", "Morgan"];
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3978";
+
+function extractIssueKey(text) {
+  const match = String(text || "").toUpperCase().match(/([A-Z][A-Z0-9]+-\d+)/);
+  return match ? match[1] : null;
+}
 
 function CardBack() {
   return (
@@ -160,14 +166,44 @@ export default function PlanningPoker() {
   const [revealed, setRevealed] = useState(false);
   const [participants, setParticipants] = useState(DEMO_USERS);
   const [history, setHistory] = useState([]);
+  const [jiraIssue, setJiraIssue] = useState(null);
+  const [jiraLoading, setJiraLoading] = useState(false);
+  const [jiraError, setJiraError] = useState("");
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
 
   const allStories = [...csvStories, ...stories];
 
+  const loadJiraForStory = useCallback(async (story) => {
+    const key = extractIssueKey(story);
+    if (!key) {
+      setJiraIssue(null);
+      setJiraError("");
+      setJiraLoading(false);
+      return;
+    }
+
+    setJiraLoading(true);
+    setJiraError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/jira/${encodeURIComponent(key)}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Failed to load Jira issue");
+      }
+      setJiraIssue(payload.issue);
+    } catch (error) {
+      setJiraIssue(null);
+      setJiraError(error.message || "Failed to load Jira issue");
+    } finally {
+      setJiraLoading(false);
+    }
+  }, []);
+
   const startSession = () => {
     const story = allStories[0] || storyInput || "Story #1";
     setCurrentStory(story);
+    loadJiraForStory(story);
     setVotes({});
     setOriginalVotes({});
     setMyVote(null);
@@ -206,6 +242,7 @@ export default function PlanningPoker() {
     }
     setStoryIndex(next);
     setCurrentStory(story);
+    loadJiraForStory(story);
     setVotes({});
     setOriginalVotes({});
     setMyVote(null);
@@ -515,6 +552,78 @@ export default function PlanningPoker() {
               Story {storyIndex + 1} {allStories.length > 0 ? `of ${allStories.length}` : ""}
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>{currentStory}</div>
+
+            {(jiraLoading || jiraIssue || jiraError) && (
+              <div style={{
+                marginTop: 12,
+                padding: "12px",
+                borderRadius: 10,
+                background: "rgba(30,41,59,0.6)",
+                border: "1px solid rgba(148,163,184,0.2)",
+              }}>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 8, fontWeight: 700, letterSpacing: 0.5 }}>
+                  Jira Details
+                </div>
+
+                {jiraLoading && <div style={{ fontSize: 12, color: "#60a5fa" }}>Loading Jira issue...</div>}
+                {jiraError && <div style={{ fontSize: 12, color: "#fca5a5" }}>{jiraError}</div>}
+
+                {jiraIssue && (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
+                      <strong>Jira:</strong> {jiraIssue.key}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
+                      <strong>Summary:</strong> {jiraIssue.summary}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
+                      <strong>Description:</strong> {jiraIssue.description || "(no description)"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
+                      <strong>Notes:</strong>{" "}
+                      {Array.isArray(jiraIssue.notes) && jiraIssue.notes.length
+                        ? jiraIssue.notes.join("\n")
+                        : "(no notes)"}
+                    </div>
+
+                    {Array.isArray(jiraIssue.images) && jiraIssue.images.length > 0 && (
+                      <div>
+                        <div style={{ fontSize: 12, color: "#cbd5e1", marginBottom: 6 }}><strong>Attachments:</strong></div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {jiraIssue.images.map((img) => (
+                            (() => {
+                              const attachmentSrc = `${API_BASE_URL}/api/jira/${encodeURIComponent(jiraIssue.key)}/attachment/${encodeURIComponent(img.id)}`;
+                              return (
+                            <a
+                              key={img.id || img.content}
+                              href={attachmentSrc}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display: "inline-flex" }}
+                            >
+                              <img
+                                src={attachmentSrc}
+                                alt={img.filename || "Jira attachment"}
+                                style={{
+                                  width: 86,
+                                  height: 64,
+                                  objectFit: "cover",
+                                  borderRadius: 6,
+                                  border: "1px solid rgba(148,163,184,0.25)",
+                                }}
+                              />
+                            </a>
+                              );
+                            })()
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{
                 height: 4, flex: 1, borderRadius: 2,

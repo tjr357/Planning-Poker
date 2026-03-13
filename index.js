@@ -4,6 +4,9 @@
  * Env:  MicrosoftAppId, MicrosoftAppPassword (from Azure Bot registration)
  */
 
+// Prefer values from .env over previously exported shell vars for local dev consistency.
+require("dotenv").config({ override: true });
+
 const { BotFrameworkAdapter } = require("botbuilder");
 const createServer = require("./bot");
 

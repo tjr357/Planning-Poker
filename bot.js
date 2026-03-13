@@ -87,15 +87,7 @@ function hasJiraConfig(cfg) {
   return Boolean(cfg.baseUrl && (cfg.bearerToken || (cfg.email && cfg.apiToken)));
 }
 
-async function fetchJiraIssue(issueKey) {
-  const cfg = jiraConfig();
-  if (!hasJiraConfig(cfg)) {
-    return { ok: false, error: "Jira not configured." };
-  }
-
-  const cleanBase = cfg.baseUrl.replace(/\/$/, "");
-  const url = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=summary,status,assignee,priority`;
-
+function jiraAuthHeaders(cfg) {
   const headers = { Accept: "application/json" };
   if (cfg.bearerToken) {
     headers.Authorization = `Bearer ${cfg.bearerToken}`;
@@ -103,6 +95,78 @@ async function fetchJiraIssue(issueKey) {
     const basic = Buffer.from(`${cfg.email}:${cfg.apiToken}`).toString("base64");
     headers.Authorization = `Basic ${basic}`;
   }
+  return headers;
+}
+
+function jiraRichTextToPlain(node) {
+  if (!node) return "";
+  if (Array.isArray(node)) return node.map(jiraRichTextToPlain).join("");
+  if (typeof node === "string") return node;
+
+  if (node.type === "text") {
+    return node.text || "";
+  }
+
+  if (node.type === "hardBreak") {
+    return "\n";
+  }
+
+  const content = jiraRichTextToPlain(node.content || []);
+
+  if (["paragraph", "heading", "blockquote"].includes(node.type)) {
+    return content + "\n";
+  }
+  if (node.type === "listItem") {
+    return `- ${content}`;
+  }
+
+  return content;
+}
+
+function normalizeJiraIssue(data, baseUrl) {
+  const fields = data.fields || {};
+  const comments = fields.comment?.comments || [];
+  const notes = comments.slice(0, 3).map((comment) => {
+    const author = comment.author?.displayName || "Unknown";
+    const text = jiraRichTextToPlain(comment.body).trim();
+    return `${author}: ${text || "(empty)"}`;
+  });
+
+  const images = (fields.attachment || [])
+    .filter((a) => String(a.mimeType || "").startsWith("image/"))
+    .map((a) => ({
+      id: a.id,
+      filename: a.filename,
+      mimeType: a.mimeType,
+      content: a.content,
+      thumbnail: a.thumbnail || a.content,
+    }));
+
+  const cleanBase = baseUrl.replace(/\/$/, "");
+
+  return {
+    key: data.key,
+    summary: fields.summary || "(no summary)",
+    description: jiraRichTextToPlain(fields.description).trim() || "(no description)",
+    notes,
+    images,
+    status: fields.status?.name || "Unknown",
+    assignee: fields.assignee?.displayName || "Unassigned",
+    priority: fields.priority?.name || "Unknown",
+    url: `${cleanBase}/browse/${data.key}`,
+  };
+}
+
+async function fetchJiraIssue(issueKey) {
+  const cfg = jiraConfig();
+  if (!hasJiraConfig(cfg)) {
+    return { ok: false, error: "Jira not configured." };
+  }
+
+  const cleanBase = cfg.baseUrl.replace(/\/$/, "");
+  const url = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=summary,status,assignee,priority,description,comment,attachment`;
+
+  const headers = jiraAuthHeaders(cfg);
 
   try {
     const response = await fetch(url, { method: "GET", headers });
@@ -111,16 +175,9 @@ async function fetchJiraIssue(issueKey) {
       return { ok: false, error: `Jira ${response.status}: ${body.slice(0, 180)}` };
     }
     const data = await response.json();
-    const fields = data.fields || {};
     return {
       ok: true,
-      issue: {
-        key: data.key,
-        summary: fields.summary || "(no summary)",
-        status: fields.status?.name || "Unknown",
-        assignee: fields.assignee?.displayName || "Unassigned",
-        priority: fields.priority?.name || "Unknown",
-      },
+      issue: normalizeJiraIssue(data, cleanBase),
     };
   } catch (error) {
     return { ok: false, error: error.message || String(error) };
@@ -399,6 +456,8 @@ class PlanningPokerBot extends ActivityHandler {
               `Status: ${i.status}`,
               `Assignee: ${i.assignee}`,
               `Priority: ${i.priority}`,
+              `Description: ${i.description.slice(0, 200)}${i.description.length > 200 ? "..." : ""}`,
+              i.notes.length ? `Notes: ${i.notes[0]}` : "Notes: (none)",
             ].join("\n")));
           }
         }
@@ -469,10 +528,73 @@ module.exports = function createServer(adapter) {
   const app = express();
   app.use(bodyParser.json());
 
+  app.use((req, res, next) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    if (req.method === "OPTIONS") return res.sendStatus(204);
+    next();
+  });
+
   const bot = new PlanningPokerBot();
 
   app.post("/api/messages", async (req, res) => {
     await adapter.process(req, res, context => bot.run(context));
+  });
+
+  app.get("/api/jira/:issueKey", async (req, res) => {
+    const issueKey = parseIssueKey(req.params.issueKey);
+    if (!issueKey) {
+      return res.status(400).json({ ok: false, error: "Invalid issue key format." });
+    }
+
+    const jira = await fetchJiraIssue(issueKey);
+    if (!jira.ok) {
+      return res.status(502).json({ ok: false, error: jira.error });
+    }
+
+    return res.json({ ok: true, issue: jira.issue });
+  });
+
+  app.get("/api/jira/:issueKey/attachment/:attachmentId", async (req, res) => {
+    const issueKey = parseIssueKey(req.params.issueKey);
+    const attachmentId = String(req.params.attachmentId || "").trim();
+    if (!issueKey || !attachmentId) {
+      return res.status(400).json({ ok: false, error: "Invalid attachment request." });
+    }
+
+    const cfg = jiraConfig();
+    if (!hasJiraConfig(cfg)) {
+      return res.status(500).json({ ok: false, error: "Jira not configured." });
+    }
+
+    const jira = await fetchJiraIssue(issueKey);
+    if (!jira.ok) {
+      return res.status(502).json({ ok: false, error: jira.error });
+    }
+
+    const image = (jira.issue.images || []).find((img) => String(img.id) === attachmentId);
+    if (!image?.content) {
+      return res.status(404).json({ ok: false, error: "Attachment not found." });
+    }
+
+    try {
+      const imageResponse = await fetch(image.content, {
+        method: "GET",
+        headers: jiraAuthHeaders(cfg),
+      });
+      if (!imageResponse.ok) {
+        const body = await imageResponse.text();
+        return res.status(502).json({ ok: false, error: `Jira ${imageResponse.status}: ${body.slice(0, 180)}` });
+      }
+
+      res.setHeader("Content-Type", imageResponse.headers.get("content-type") || image.mimeType || "image/*");
+      res.setHeader("Cache-Control", "private, max-age=120");
+      const buffer = Buffer.from(await imageResponse.arrayBuffer());
+      return res.send(buffer);
+    } catch (error) {
+      return res.status(502).json({ ok: false, error: error.message || String(error) });
+    }
   });
 
   app.get("/health", (_, res) => res.json({ status: "ok" }));
