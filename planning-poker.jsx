@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 
 const PRESET_DECKS = {
-  fibonacci: { label: "Fibonacci", cards: ["1", "2", "3", "5", "8", "13", "21", "34", "?", "☕"] },
+  fibonacci: { label: "Fibonacci", cards: ["1", "3", "5", "8", "13", "?", "☕"] },
   tshirt: { label: "T-Shirt", cards: ["XS", "S", "M", "L", "XL", "XXL", "?"] },
   standard: { label: "Standard", cards: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "?"] },
   hours: { label: "Hours", cards: ["0.5", "1", "2", "4", "8", "16", "24", "40", "?"] },
@@ -580,26 +580,6 @@ export default function PlanningPoker() {
                 />
               ))}
             </div>
-          </div>
-
-          {/* Add card on the fly */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center" }}>
-            <input
-              placeholder="Add card value on the fly..."
-              value={addCardInput}
-              onChange={e => setAddCardInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleAddCard()}
-              style={{
-                padding: "7px 12px", borderRadius: 8, fontSize: 12,
-                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                color: "#94a3b8", width: 200,
-              }}
-            />
-            <button onClick={handleAddCard} style={{
-              padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-              background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)",
-              color: "#64748b",
-            }}>+ Card</button>
           </div>
 
           {/* Actions */}

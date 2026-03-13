@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const FIBONACCI_DECK = ["1", "2", "3", "5", "8", "13", "21", "34", "?", "☕"];
+const FIBONACCI_DECK = ["1", , "3", "5", "8", "13", "?", "☕"];
 
 const DEMO_USERS = [
   { id: "u1", name: "You", isMe: true },

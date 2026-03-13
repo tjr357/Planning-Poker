@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 
 const PRESET_DECKS = {
-  fibonacci: { label: "Fibonacci", cards: ["1", "2", "3", "5", "8", "13", "21", "34", "?", "☕"] },
+  fibonacci: { label: "Fibonacci", cards: ["1", "3", "5", "8", "13", "?", "☕"] },
   tshirt: { label: "T-Shirt", cards: ["XS", "S", "M", "L", "XL", "XXL", "?"] },
   standard: { label: "Standard", cards: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "?"] },
   hours: { label: "Hours", cards: ["0.5", "1", "2", "4", "8", "16", "24", "40", "?"] },
