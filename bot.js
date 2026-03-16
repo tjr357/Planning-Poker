@@ -123,8 +123,94 @@ function jiraRichTextToPlain(node) {
   return content;
 }
 
+function jiraFieldValueToText(value) {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(jiraFieldValueToText).filter(Boolean).join("\n").trim();
+  }
+  if (typeof value === "object") {
+    if (value.type || value.content) {
+      return jiraRichTextToPlain(value).trim();
+    }
+    if (typeof value.value === "string") {
+      return value.value.trim();
+    }
+    if (typeof value.name === "string") {
+      return value.name.trim();
+    }
+    if (typeof value.key === "string") {
+      return value.key.trim();
+    }
+    return Object.values(value).map(jiraFieldValueToText).filter(Boolean).join("\n").trim();
+  }
+  return "";
+}
+
+function extractAcceptanceCriteria(fields = {}, fieldNames = {}) {
+  const directCandidates = [
+    fields.acceptanceCriteria,
+    fields.acceptance_criteria,
+  ];
+  for (const candidate of directCandidates) {
+    const text = jiraFieldValueToText(candidate).trim();
+    if (text) return text;
+  }
+
+  const byName = Object.entries(fields).find(([fieldKey]) => {
+    const label = String(fieldNames[fieldKey] || fieldKey).toLowerCase();
+    return label.includes("acceptance criteria") || label.includes("acceptance criterion");
+  });
+  if (byName) {
+    return jiraFieldValueToText(byName[1]).trim();
+  }
+
+  const byKeyHint = Object.entries(fields).find(([fieldKey]) => /acceptance/i.test(fieldKey));
+  if (byKeyHint) {
+    return jiraFieldValueToText(byKeyHint[1]).trim();
+  }
+
+  return "";
+}
+
+function extractParentFeature(fields = {}, cleanBase) {
+  const parent = fields.parent;
+  if (parent?.key) {
+    return {
+      key: parent.key,
+      summary: parent.fields?.summary || "",
+      issueType: parent.fields?.issuetype?.name || "",
+      url: `${cleanBase}/browse/${parent.key}`,
+    };
+  }
+  return null;
+}
+
+function extractLinkedIssues(fields = {}, cleanBase) {
+  const links = Array.isArray(fields.issuelinks) ? fields.issuelinks : [];
+  return links
+    .map((link) => {
+      const related = link.outwardIssue || link.inwardIssue;
+      if (!related?.key) return null;
+      return {
+        key: related.key,
+        summary: related.fields?.summary || "",
+        issueType: related.fields?.issuetype?.name || "",
+        status: related.fields?.status?.name || "",
+        relationship: link.outwardIssue
+          ? (link.type?.outward || "relates to")
+          : (link.type?.inward || "relates to"),
+        url: `${cleanBase}/browse/${related.key}`,
+      };
+    })
+    .filter(Boolean);
+}
+
 function normalizeJiraIssue(data, baseUrl) {
   const fields = data.fields || {};
+  const fieldNames = data.names || {};
   const comments = fields.comment?.comments || [];
   const notes = comments.slice(0, 3).map((comment) => {
     const author = comment.author?.displayName || "Unknown";
@@ -143,10 +229,17 @@ function normalizeJiraIssue(data, baseUrl) {
     }));
 
   const cleanBase = baseUrl.replace(/\/$/, "");
+  const acceptanceCriteria = extractAcceptanceCriteria(fields, fieldNames);
+  const linkedIssues = extractLinkedIssues(fields, cleanBase);
+  const parentFeature = extractParentFeature(fields, cleanBase);
 
   return {
     key: data.key,
     summary: fields.summary || "(no summary)",
+    issueType: fields.issuetype?.name || "Unknown",
+    parentFeature,
+    linkedIssues,
+    acceptanceCriteria,
     description: jiraRichTextToPlain(fields.description).trim() || "(no description)",
     notes,
     images,
@@ -164,7 +257,7 @@ async function fetchJiraIssue(issueKey) {
   }
 
   const cleanBase = cfg.baseUrl.replace(/\/$/, "");
-  const url = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=summary,status,assignee,priority,description,comment,attachment`;
+  const url = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=*all&expand=names`;
 
   const headers = jiraAuthHeaders(cfg);
 
@@ -179,6 +272,150 @@ async function fetchJiraIssue(issueKey) {
       ok: true,
       issue: normalizeJiraIssue(data, cleanBase),
     };
+  } catch (error) {
+    return { ok: false, error: error.message || String(error) };
+  }
+}
+
+async function fetchJiraFilterIssues(filterRef, maxResults = 100) {
+  const cfg = jiraConfig();
+  if (!hasJiraConfig(cfg)) {
+    return { ok: false, error: "Jira not configured." };
+  }
+
+  const cleanBase = cfg.baseUrl.replace(/\/$/, "");
+  const headers = jiraAuthHeaders(cfg);
+  const normalizedMax = Number.isFinite(maxResults) ? Math.max(1, Math.min(200, Number(maxResults))) : 100;
+  const ref = String(filterRef || "").trim();
+  if (!ref) {
+    return { ok: false, error: "Filter reference is required." };
+  }
+
+  const mapIssues = (issuesList) => {
+    return (issuesList || []).map((issue) => {
+      const fields = issue.fields || {};
+      const parentKey = fields.parent?.key || "";
+      const parentSummary = fields.parent?.fields?.summary || "";
+      return {
+        key: issue.key,
+        summary: fields.summary || "(no summary)",
+        issueType: fields.issuetype?.name || "Unknown",
+        status: fields.status?.name || "Unknown",
+        parentKey: parentKey || null,
+        parentSummary: parentSummary || null,
+        url: `${cleanBase}/browse/${issue.key}`,
+      };
+    });
+  };
+
+  const runJqlSearch = async (jql) => {
+    const postUrl = `${cleanBase}/rest/api/3/search/jql`;
+    const postResponse = await fetch(postUrl, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        jql,
+        maxResults: normalizedMax,
+        fields: ["summary", "status", "issuetype", "parent"],
+      }),
+    });
+
+    if (postResponse.ok) {
+      return await postResponse.json();
+    }
+
+    // Fallback to the legacy endpoint when /search/jql is unavailable.
+    const legacyUrl = `${cleanBase}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=${normalizedMax}&fields=summary,status,issuetype,parent`;
+    const legacyResponse = await fetch(legacyUrl, { method: "GET", headers });
+    if (!legacyResponse.ok) {
+      const body = await legacyResponse.text();
+      throw new Error(`Jira ${legacyResponse.status}: ${body.slice(0, 180)}`);
+    }
+    return await legacyResponse.json();
+  };
+
+  const fetchFilterSearch = async (filterId) => {
+    const encodedId = encodeURIComponent(filterId);
+
+    // Preferred path when supported by the Jira deployment.
+    const filterSearchUrl = `${cleanBase}/rest/api/3/filter/${encodedId}/search?maxResults=${normalizedMax}&fields=summary,status,issuetype,parent`;
+    const filterSearchResponse = await fetch(filterSearchUrl, { method: "GET", headers });
+    if (filterSearchResponse.ok) {
+      const data = await filterSearchResponse.json();
+      return {
+        ok: true,
+        filterId: data.filter?.id || String(filterId),
+        filterName: data.filter?.name || null,
+        issues: mapIssues(data.issues),
+      };
+    }
+
+    // Fallback path for Jira environments where /filter/{id}/search is unavailable.
+    const filterUrl = `${cleanBase}/rest/api/3/filter/${encodedId}`;
+    const filterResponse = await fetch(filterUrl, { method: "GET", headers });
+    if (!filterResponse.ok) {
+      const body = await filterResponse.text();
+      if (filterResponse.status === 404) {
+        return {
+          ok: false,
+          error: `Jira could not find filter "${filterId}" or this account cannot access it.`,
+        };
+      }
+      return { ok: false, error: `Jira ${filterResponse.status}: ${body.slice(0, 180)}` };
+    }
+
+    const filterData = await filterResponse.json();
+    const jql = String(filterData.jql || "").trim();
+    if (!jql) {
+      return { ok: false, error: `Jira filter "${filterId}" has no JQL to run.` };
+    }
+
+    let searchData;
+    try {
+      searchData = await runJqlSearch(jql);
+    } catch (error) {
+      return { ok: false, error: error.message || String(error) };
+    }
+
+    return {
+      ok: true,
+      filterId: filterData.id || String(filterId),
+      filterName: filterData.name || null,
+      issues: mapIssues(searchData.issues),
+    };
+  };
+
+  try {
+    if (/^\d+$/.test(ref)) {
+      return await fetchFilterSearch(ref);
+    }
+
+    // Accept names that include a trailing numeric ID (e.g. "Board Filter 10098").
+    const trailingIdMatch = ref.match(/(\d+)\s*$/);
+    if (trailingIdMatch?.[1]) {
+      const byTrailingId = await fetchFilterSearch(trailingIdMatch[1]);
+      if (byTrailingId.ok) {
+        return byTrailingId;
+      }
+    }
+
+    // Try finding filter by name first.
+    const filterSearchUrl = `${cleanBase}/rest/api/3/filter/search?filterName=${encodeURIComponent(ref)}&maxResults=50`;
+    const filterSearchResponse = await fetch(filterSearchUrl, { method: "GET", headers });
+    if (filterSearchResponse.ok) {
+      const filterData = await filterSearchResponse.json();
+      const values = filterData.values || [];
+      const exact = values.find((f) => String(f.name || "").toLowerCase() === ref.toLowerCase());
+      const selected = exact || values[0];
+      if (selected?.id) {
+        return await fetchFilterSearch(selected.id);
+      }
+    }
+
+    return { ok: false, error: `No Jira filter found matching \"${ref}\".` };
   } catch (error) {
     return { ok: false, error: error.message || String(error) };
   }
@@ -554,6 +791,26 @@ module.exports = function createServer(adapter) {
     }
 
     return res.json({ ok: true, issue: jira.issue });
+  });
+
+  app.get("/api/jira/filter/:filterRef", async (req, res) => {
+    const filterRef = String(req.params.filterRef || "").trim();
+    if (!filterRef) {
+      return res.status(400).json({ ok: false, error: "Filter reference is required." });
+    }
+
+    const maxResults = Number(req.query.maxResults || 100);
+    const jira = await fetchJiraFilterIssues(filterRef, maxResults);
+    if (!jira.ok) {
+      return res.status(502).json({ ok: false, error: jira.error });
+    }
+
+    return res.json({
+      ok: true,
+      filterId: jira.filterId,
+      filterName: jira.filterName,
+      issues: jira.issues,
+    });
   });
 
   app.get("/api/jira/:issueKey/attachment/:attachmentId", async (req, res) => {

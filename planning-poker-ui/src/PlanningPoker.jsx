@@ -185,6 +185,10 @@ export default function PlanningPoker() {
   const [jiraIssue, setJiraIssue] = useState(null);
   const [jiraLoading, setJiraLoading] = useState(false);
   const [jiraError, setJiraError] = useState("");
+  const [jiraFilterInput, setJiraFilterInput] = useState("");
+  const [jiraFilterLoading, setJiraFilterLoading] = useState(false);
+  const [jiraFilterError, setJiraFilterError] = useState("");
+  const [jiraFilterInfo, setJiraFilterInfo] = useState("");
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
 
@@ -290,6 +294,28 @@ export default function PlanningPoker() {
       setCsvStories(parsed);
     };
     reader.readAsText(file);
+  };
+
+  const loadStoriesFromJiraFilter = async () => {
+    const ref = jiraFilterInput.trim();
+    if (!ref) return;
+    setJiraFilterLoading(true);
+    setJiraFilterError("");
+    setJiraFilterInfo("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/jira/filter/${encodeURIComponent(ref)}?maxResults=100`);
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Failed to load Jira filter");
+      }
+      const imported = (payload.issues || []).map((issue) => `${issue.key}: ${issue.summary}`);
+      setCsvStories(imported);
+      setJiraFilterInfo(`Loaded ${imported.length} stories from ${payload.filterName || payload.filterId || ref}`);
+    } catch (error) {
+      setJiraFilterError(error.message || "Failed to load Jira filter");
+    } finally {
+      setJiraFilterLoading(false);
+    }
   };
 
   const handleAddCard = () => {
@@ -458,6 +484,41 @@ export default function PlanningPoker() {
           {tab === "stories" && (
             <div style={{ animation: "slideUp 0.2s ease" }}>
               <div style={{
+                padding: "12px", borderRadius: 10, marginBottom: 14,
+                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
+              }}>
+                <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, fontWeight: 700, letterSpacing: 0.5 }}>
+                  Load From Jira Filter
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    placeholder="Filter ID (e.g. 12345) or exact filter name"
+                    value={jiraFilterInput}
+                    onChange={(e) => setJiraFilterInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && loadStoriesFromJiraFilter()}
+                    style={{
+                      flex: 1, padding: "8px 12px",
+                      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8, color: "#e2e8f0", fontSize: 13,
+                    }}
+                  />
+                  <button
+                    onClick={loadStoriesFromJiraFilter}
+                    disabled={jiraFilterLoading || !jiraFilterInput.trim()}
+                    style={{
+                      padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                      background: jiraFilterLoading ? "rgba(99,102,241,0.1)" : "rgba(99,102,241,0.2)",
+                      border: "1px solid #6366f1", color: jiraFilterLoading ? "#64748b" : "#a5b4fc",
+                    }}
+                  >
+                    {jiraFilterLoading ? "Loading..." : "Load"}
+                  </button>
+                </div>
+                {jiraFilterError && <div style={{ marginTop: 8, fontSize: 12, color: "#fca5a5" }}>{jiraFilterError}</div>}
+                {jiraFilterInfo && <div style={{ marginTop: 8, fontSize: 12, color: "#6ee7b7" }}>{jiraFilterInfo}</div>}
+              </div>
+
+              <div style={{
                 border: "2px dashed rgba(255,255,255,0.1)", borderRadius: 12,
                 padding: 24, textAlign: "center", marginBottom: 20, cursor: "pointer",
                 background: "rgba(255,255,255,0.02)",
@@ -590,10 +651,31 @@ export default function PlanningPoker() {
                       <strong>Jira:</strong> {jiraIssue.key}
                     </div>
                     <div style={{ fontSize: 12, color: "#cbd5e1" }}>
+                      <strong>Issue Type:</strong> {jiraIssue.issueType || "Unknown"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
                       <strong>Summary:</strong> {jiraIssue.summary}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
+                      <strong>Parent Feature:</strong>{" "}
+                      {jiraIssue.parentFeature?.key
+                        ? `${jiraIssue.parentFeature.key}${jiraIssue.parentFeature.summary ? `: ${jiraIssue.parentFeature.summary}` : ""}`
+                        : "(none)"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
+                      <strong>Acceptance Criteria:</strong>{" "}
+                      {jiraIssue.acceptanceCriteria || "(none)"}
                     </div>
                     <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
                       <strong>Description:</strong> {jiraIssue.description || "(no description)"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
+                      <strong>Linked Issues:</strong>{" "}
+                      {Array.isArray(jiraIssue.linkedIssues) && jiraIssue.linkedIssues.length
+                        ? jiraIssue.linkedIssues
+                            .map((item) => `${item.relationship}: ${item.key}${item.summary ? ` - ${item.summary}` : ""}`)
+                            .join("\n")
+                        : "(none)"}
                     </div>
                     <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
                       <strong>Notes:</strong>{" "}
@@ -602,9 +684,9 @@ export default function PlanningPoker() {
                         : "(no notes)"}
                     </div>
 
-                    {Array.isArray(jiraIssue.images) && jiraIssue.images.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: 12, color: "#cbd5e1", marginBottom: 6 }}><strong>Attachments:</strong></div>
+                    <div>
+                      <div style={{ fontSize: 12, color: "#cbd5e1", marginBottom: 6 }}><strong>Images:</strong></div>
+                      {Array.isArray(jiraIssue.images) && jiraIssue.images.length > 0 ? (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                           {jiraIssue.images.map((img) => (
                             (() => {
@@ -633,8 +715,10 @@ export default function PlanningPoker() {
                             })()
                           ))}
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <div style={{ fontSize: 12, color: "#cbd5e1" }}>(none)</div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
