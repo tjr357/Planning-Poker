@@ -15,11 +15,17 @@ Additionally I wanted this to be as simple as possible for my developers without
 ### Tested locally and passes
 - Anonymous voting 
 - Import Jira cards from a Jira filter
+- Import Jira cards from CSV (formatting is important)
 - Add Jira cards on the fly
 - See previous vote when re-voting
+- Extenisble to T-Shirt sizing and other estimating values
+- Running tally of cards estimated in session
 
 ### WIP
 - Teams bot (still need access to create one)
+- Fix UI width
+- Edit participants
+- End session
 
 # Planning Poker for Microsoft Teams
 
