@@ -1,3 +1,7 @@
+# DISCLAIMER
+This is a prototype to fill in the gap that Planning Poker has left. 
+Copilot was used for 100% of this prototype.
+
 # Planning Poker for Microsoft Teams
 
 Planning Poker app with:
