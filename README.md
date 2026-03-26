@@ -2,6 +2,25 @@
 This is a prototype to fill in the gap that Planning Poker has left. 
 Copilot was used for 100% of this prototype.
 
+# Design Philosophy
+One of the biggest benefits for using Planning Poker was the anonymity of the estimates which generated conversations. Otherwise I observed others would defer to the leads or to whomever spoke first.
+This prototype is to give the same experience:
+- All necessary information displayed from Jira
+- Anonymous voting
+
+Additionally I wanted this to be as simple as possible for my developers without having to learn a new system.
+
+# Features
+
+### Tested locally and passes
+- Anonymous voting 
+- Import Jira cards from a Jira filter
+- Add Jira cards on the fly
+- See previous vote when re-voting
+
+### WIP
+- Teams bot (still need access to create one)
+
 # Planning Poker for Microsoft Teams
 
 Planning Poker app with:
