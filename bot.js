@@ -98,6 +98,15 @@ function jiraAuthHeaders(cfg) {
   return headers;
 }
 
+function formatFetchError(error) {
+  if (!error) return "Unknown error";
+  const message = error.message || String(error);
+  const causeMessage = error.cause?.message;
+  return causeMessage && causeMessage !== message
+    ? `${message} (${causeMessage})`
+    : message;
+}
+
 function jiraRichTextToPlain(node) {
   if (!node) return "";
   if (Array.isArray(node)) return node.map(jiraRichTextToPlain).join("");
@@ -273,7 +282,7 @@ async function fetchJiraIssue(issueKey) {
       issue: normalizeJiraIssue(data, cleanBase),
     };
   } catch (error) {
-    return { ok: false, error: error.message || String(error) };
+    return { ok: false, error: formatFetchError(error) };
   }
 }
 
@@ -339,21 +348,25 @@ async function fetchJiraFilterIssues(filterRef, maxResults = 100) {
 
   const fetchFilterSearch = async (filterId) => {
     const encodedId = encodeURIComponent(filterId);
-
     // Preferred path when supported by the Jira deployment.
-    const filterSearchUrl = `${cleanBase}/rest/api/3/filter/${encodedId}/search?maxResults=${normalizedMax}&fields=summary,status,issuetype,parent`;
-    const filterSearchResponse = await fetch(filterSearchUrl, { method: "GET", headers });
-    if (filterSearchResponse.ok) {
-      const data = await filterSearchResponse.json();
-      return {
-        ok: true,
-        filterId: data.filter?.id || String(filterId),
-        filterName: data.filter?.name || null,
-        issues: mapIssues(data.issues),
-      };
+    // If it fails (404/other) we fall back to filter metadata + /search/jql.
+    try {
+      const filterSearchUrl = `${cleanBase}/rest/api/3/filter/${encodedId}/search?maxResults=${normalizedMax}&fields=summary,status,issuetype,parent`;
+      const filterSearchResponse = await fetch(filterSearchUrl, { method: "GET", headers });
+      if (filterSearchResponse.ok) {
+        const data = await filterSearchResponse.json();
+        return {
+          ok: true,
+          filterId: data.filter?.id || String(filterId),
+          filterName: data.filter?.name || null,
+          issues: mapIssues(data.issues),
+        };
+      }
+    } catch (_error) {
+      // Ignore and continue to fallback flow.
     }
 
-    // Fallback path for Jira environments where /filter/{id}/search is unavailable.
+    // Fallback flow that works on Jira environments where /filter/{id}/search is unavailable.
     const filterUrl = `${cleanBase}/rest/api/3/filter/${encodedId}`;
     const filterResponse = await fetch(filterUrl, { method: "GET", headers });
     if (!filterResponse.ok) {
@@ -417,7 +430,7 @@ async function fetchJiraFilterIssues(filterRef, maxResults = 100) {
 
     return { ok: false, error: `No Jira filter found matching \"${ref}\".` };
   } catch (error) {
-    return { ok: false, error: error.message || String(error) };
+    return { ok: false, error: formatFetchError(error) };
   }
 }
 
@@ -850,7 +863,7 @@ module.exports = function createServer(adapter) {
       const buffer = Buffer.from(await imageResponse.arrayBuffer());
       return res.send(buffer);
     } catch (error) {
-      return res.status(502).json({ ok: false, error: error.message || String(error) });
+      return res.status(502).json({ ok: false, error: formatFetchError(error) });
     }
   });
 

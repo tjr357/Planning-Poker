@@ -35,8 +35,8 @@ function CardBack() {
 }
 
 function PokerCard({ value, selected, onClick, revealed, small }) {
-  const w = small ? 44 : 64;
-  const h = small ? 60 : 88;
+  const w = small ? 44 : 53;
+  const h = small ? 60 : 78;
   return (
     <div
       onClick={onClick}
@@ -88,7 +88,7 @@ function PokerCard({ value, selected, onClick, revealed, small }) {
 function VoteSlot({ name, voted, value, revealed, originalValue }) {
   return (
     <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 70,
+      display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 69, // This is the highest width to get 5 people on one row (nice)
     }}>
       <div style={{ width: 52, height: 72, position: "relative" }}>
         {voted ? (
@@ -398,7 +398,7 @@ export default function PlanningPoker() {
       </div>
 
       {view === "lobby" && (
-        <div style={{ padding: "32px 24px", maxWidth: 720, margin: "0 auto", width: "100%", animation: "slideUp 0.4s ease" }}>
+        <div style={{ padding: "32px 24px", maxWidth: 720, margin: "0 auto", width: "90%", animation: "slideUp 0.4s ease" }}>
           <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4, letterSpacing: -1 }}>
             New Session
           </h1>
@@ -618,7 +618,7 @@ export default function PlanningPoker() {
       )}
 
       {view === "session" && (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "24px", maxWidth: 800, margin: "0 auto", width: "100%", animation: "slideUp 0.3s ease" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "24px", maxWidth: 800, margin: "0 auto", width: "90%", animation: "slideUp 0.3s ease" }}>
 
           {/* Story header */}
           <div style={{

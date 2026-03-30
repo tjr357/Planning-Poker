@@ -156,6 +156,8 @@ node smoke-test.js
 
 - Session state is currently in-memory (`Map` in `bot.js`), so state resets on restart.
 - For production, replace in-memory storage with a persistent store (Redis/Cosmos DB/etc.).
+- There is a certificate that you will need in order to hit the corporate version of Jira. If you see "failed fetch" and a 404 in the console when getting tickets via filters, this cert needs to be made
+  - If you can't make the cert, you can run the following command `$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"` in the root directory of the project and it will ignore the lack of certs. This is very insecure, so should ONLY be used for local development, never deployment
 
 ## License
 
