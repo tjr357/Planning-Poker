@@ -180,6 +180,7 @@ export default function PlanningPoker() {
   const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
+  const [finalEstimate, setFinalEstimate] = useState("");
   const [participants] = useState(DEMO_USERS);
   const [history, setHistory] = useState([]);
   const [jiraIssue, setJiraIssue] = useState(null);
@@ -228,6 +229,7 @@ export default function PlanningPoker() {
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
+    setFinalEstimate("");
     setStoryIndex(0);
     setView("session");
     // Simulate other users voting after a delay
@@ -252,32 +254,85 @@ export default function PlanningPoker() {
   const reveal = () => {
     setOriginalVotes({ ...votes });
     setRevealed(true);
+    // Pre-fill estimate with calculated consensus; facilitator can override
+    const vals = Object.values(votes).filter(v => !isNaN(parseFloat(v)));
+    if (vals.length) {
+      const avg = vals.reduce((a, b) => a + parseFloat(b), 0) / vals.length;
+      const nums = activeCards.filter(c => !isNaN(parseFloat(c))).map(parseFloat);
+      const nearest = nums.length
+        ? nums.reduce((a, b) => Math.abs(b - avg) < Math.abs(a - avg) ? b : a, nums[0])
+        : Math.round(avg);
+      setFinalEstimate(String(nearest));
+    }
   };
+
+  const saveStorySnapshot = useCallback((story, storyVotes, estimate) => {
+    setHistory((h) => {
+      const existingIndex = h.findIndex((item) => item.story === story);
+      const snapshot = { story, votes: { ...storyVotes }, result: estimate || "?" };
+      if (existingIndex >= 0) {
+        const updated = [...h];
+        updated[existingIndex] = snapshot;
+        return updated;
+      }
+      return [...h, snapshot];
+    });
+  }, []);
+
+  const restoreStorySnapshot = useCallback((story) => {
+    const existing = history.find((item) => item.story === story);
+    if (!existing) return false;
+
+    const restoredVotes = { ...(existing.votes || {}) };
+    setVotes(restoredVotes);
+    setOriginalVotes(restoredVotes);
+    setMyVote(restoredVotes[DEMO_USERS[0]] || null);
+    setRevealed(true);
+    setFinalEstimate(existing.result || "");
+    return true;
+  }, [history]);
 
   const nextStory = () => {
     const next = storyIndex + 1;
     const story = allStories[next] || `Story #${next + 1}`;
     if (revealed && myVote) {
-      setHistory(h => [...h, { story: currentStory, votes: { ...votes }, result: getConsensus() }]);
+      saveStorySnapshot(currentStory, votes, finalEstimate);
     }
     setStoryIndex(next);
     setCurrentStory(story);
     loadJiraForStory(story);
+
+    if (restoreStorySnapshot(story)) {
+      return;
+    }
+
     setVotes({});
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
+    setFinalEstimate("");
     simulateVotes();
   };
 
-  const getConsensus = () => {
-    const vals = Object.values(votes).filter(v => !isNaN(parseFloat(v)));
-    if (!vals.length) return "?";
-    const avg = vals.reduce((a, b) => a + parseFloat(b), 0) / vals.length;
-    // Find nearest card
-    const nums = activeCards.filter(c => !isNaN(parseFloat(c))).map(parseFloat);
-    const nearest = nums.reduce((a, b) => Math.abs(b - avg) < Math.abs(a - avg) ? b : a, nums[0]);
-    return String(nearest ?? Math.round(avg));
+  const previousStory = () => {
+    if (storyIndex === 0) return;
+    const prev = storyIndex - 1;
+    const story = allStories[prev] || `Story #${prev + 1}`;
+
+    setStoryIndex(prev);
+    setCurrentStory(story);
+    loadJiraForStory(story);
+
+    if (restoreStorySnapshot(story)) {
+      return;
+    }
+
+    setVotes({});
+    setOriginalVotes({});
+    setMyVote(null);
+    setRevealed(false);
+    setFinalEstimate("");
+    simulateVotes();
   };
 
   const handleCSV = (e) => {
@@ -784,9 +839,19 @@ export default function PlanningPoker() {
                   <div style={{ fontSize: 10, color: "#6ee7b7", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Max</div>
                   <div style={{ fontSize: 28, fontWeight: 800, color: "#34d399", fontFamily: "monospace" }}>{max}</div>
                 </div>}
-                <div>
-                  <div style={{ fontSize: 10, color: "#6ee7b7", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Consensus</div>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: "#fff", fontFamily: "monospace" }}>{getConsensus()}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ fontSize: 10, color: "#6ee7b7", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Estimate</div>
+                  <input
+                    value={finalEstimate}
+                    onChange={e => setFinalEstimate(e.target.value)}
+                    placeholder="—"
+                    style={{
+                      width: 80, padding: "4px 8px",
+                      background: "rgba(255,255,255,0.08)", border: "1px solid rgba(16,185,129,0.4)",
+                      borderRadius: 6, color: "#fff", fontSize: 22, fontWeight: 800,
+                      fontFamily: "monospace", textAlign: "center",
+                    }}
+                  />
                 </div>
               </div>
             )}
@@ -812,6 +877,19 @@ export default function PlanningPoker() {
 
           {/* Actions */}
           <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={previousStory}
+              disabled={storyIndex === 0}
+              style={{
+                padding: "12px 14px", borderRadius: 10,
+                background: storyIndex > 0 ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                color: storyIndex > 0 ? "#cbd5e1" : "#475569",
+                fontSize: 13, fontWeight: 700,
+              }}
+            >
+              ← Previous
+            </button>
             {!revealed ? (
               <button onClick={reveal} disabled={voteCount === 0} style={{
                 flex: 1, padding: "12px", borderRadius: 10,
@@ -839,17 +917,33 @@ export default function PlanningPoker() {
                 Completed
               </div>
               {history.map((h, i) => (
+                (() => {
+                  const isCurrentStory = h.story === currentStory;
+                  return (
                 <div key={i} style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "8px 12px", marginBottom: 6, borderRadius: 8,
-                  background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
+                  background: isCurrentStory ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.02)",
+                  border: isCurrentStory ? "1px solid rgba(99,102,241,0.45)" : "1px solid rgba(255,255,255,0.05)",
                 }}>
-                  <span style={{ fontSize: 13, color: "#64748b" }}>{h.story}</span>
+                  <span style={{ fontSize: 13, color: isCurrentStory ? "#c7d2fe" : "#64748b" }}>
+                    {h.story}
+                    {isCurrentStory && (
+                      <span style={{
+                        marginLeft: 8, fontSize: 10, fontWeight: 700,
+                        color: "#a5b4fc", textTransform: "uppercase", letterSpacing: 0.6,
+                      }}>
+                        Viewing
+                      </span>
+                    )}
+                  </span>
                   <span style={{
-                    fontSize: 13, fontWeight: 700, color: "#10b981",
+                    fontSize: 13, fontWeight: 700, color: isCurrentStory ? "#86efac" : "#10b981",
                     fontFamily: "monospace", minWidth: 30, textAlign: "right",
                   }}>{h.result}</span>
                 </div>
+                  );
+                })()
               ))}
             </div>
           )}
