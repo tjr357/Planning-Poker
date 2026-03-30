@@ -191,10 +191,15 @@ export default function PlanningPoker() {
   const [jiraFilterLoading, setJiraFilterLoading] = useState(false);
   const [jiraFilterError, setJiraFilterError] = useState("");
   const [jiraFilterInfo, setJiraFilterInfo] = useState("");
+  const [activeImageIndex, setActiveImageIndex] = useState(null);
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
 
   const allStories = [...csvStories, ...stories];
+
+  const getJiraAttachmentSrc = useCallback((issueKey, attachmentId) => {
+    return `${API_BASE_URL}/api/jira/${encodeURIComponent(issueKey)}/attachment/${encodeURIComponent(attachmentId)}`;
+  }, []);
 
   const loadJiraForStory = useCallback(async (story) => {
     const key = extractIssueKey(story);
@@ -798,16 +803,20 @@ export default function PlanningPoker() {
                       <div style={{ fontSize: 12, color: "#cbd5e1", marginBottom: 6 }}><strong>Images:</strong></div>
                       {Array.isArray(jiraIssue.images) && jiraIssue.images.length > 0 ? (
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                          {jiraIssue.images.map((img) => (
-                            (() => {
-                              const attachmentSrc = `${API_BASE_URL}/api/jira/${encodeURIComponent(jiraIssue.key)}/attachment/${encodeURIComponent(img.id)}`;
-                              return (
-                            <a
+                          {jiraIssue.images.map((img, imageIndex) => {
+                            const attachmentSrc = getJiraAttachmentSrc(jiraIssue.key, img.id);
+                            return (
+                            <button
                               key={img.id || img.content}
-                              href={attachmentSrc}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={{ display: "inline-flex" }}
+                              onClick={() => setActiveImageIndex(imageIndex)}
+                              style={{
+                                display: "inline-flex",
+                                background: "none",
+                                border: "none",
+                                padding: 0,
+                                borderRadius: 6,
+                              }}
+                              title="Open gallery"
                             >
                               <img
                                 src={attachmentSrc}
@@ -820,10 +829,9 @@ export default function PlanningPoker() {
                                   border: "1px solid rgba(148,163,184,0.25)",
                                 }}
                               />
-                            </a>
-                              );
-                            })()
-                          ))}
+                            </button>
+                            );
+                          })}
                         </div>
                       ) : (
                         <div style={{ fontSize: 12, color: "#cbd5e1" }}>(none)</div>
@@ -1007,6 +1015,160 @@ export default function PlanningPoker() {
                   );
                 })()
               ))}
+            </div>
+          )}
+
+          {jiraIssue && Array.isArray(jiraIssue.images) && jiraIssue.images.length > 0 && activeImageIndex !== null && (
+            <div
+              onClick={() => setActiveImageIndex(null)}
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(2,8,23,0.88)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                zIndex: 50,
+                padding: 20,
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: "min(980px, 100%)",
+                  maxHeight: "90vh",
+                  borderRadius: 12,
+                  background: "#0b1220",
+                  border: "1px solid rgba(148,163,184,0.25)",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "10px 12px",
+                  borderBottom: "1px solid rgba(148,163,184,0.2)",
+                }}>
+                  <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>
+                    Image {activeImageIndex + 1} of {jiraIssue.images.length}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const img = jiraIssue.images[activeImageIndex];
+                      if (!img) return;
+                      window.open(getJiraAttachmentSrc(jiraIssue.key, img.id), "_blank", "noopener,noreferrer");
+                    }}
+                    style={{
+                      marginLeft: "auto",
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(148,163,184,0.3)",
+                      color: "#cbd5e1",
+                      fontSize: 12,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Open in New Tab
+                  </button>
+                  <button
+                    onClick={() => setActiveImageIndex(null)}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      background: "rgba(239,68,68,0.12)",
+                      border: "1px solid rgba(239,68,68,0.35)",
+                      color: "#fca5a5",
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                <div style={{
+                  position: "relative",
+                  background: "#020817",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: 320,
+                  maxHeight: "70vh",
+                  padding: 12,
+                }}>
+                  <img
+                    src={getJiraAttachmentSrc(jiraIssue.key, jiraIssue.images[activeImageIndex].id)}
+                    alt={jiraIssue.images[activeImageIndex].filename || "Jira attachment"}
+                    style={{
+                      maxWidth: "100%",
+                      maxHeight: "100%",
+                      objectFit: "contain",
+                      borderRadius: 8,
+                    }}
+                  />
+
+                  {jiraIssue.images.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => setActiveImageIndex((idx) => (idx - 1 + jiraIssue.images.length) % jiraIssue.images.length)}
+                        style={{
+                          position: "absolute", left: 10,
+                          width: 34, height: 34, borderRadius: "50%",
+                          background: "rgba(2,8,23,0.72)", border: "1px solid rgba(148,163,184,0.35)",
+                          color: "#e2e8f0", fontSize: 18, fontWeight: 700,
+                        }}
+                      >
+                        ‹
+                      </button>
+                      <button
+                        onClick={() => setActiveImageIndex((idx) => (idx + 1) % jiraIssue.images.length)}
+                        style={{
+                          position: "absolute", right: 10,
+                          width: 34, height: 34, borderRadius: "50%",
+                          background: "rgba(2,8,23,0.72)", border: "1px solid rgba(148,163,184,0.35)",
+                          color: "#e2e8f0", fontSize: 18, fontWeight: 700,
+                        }}
+                      >
+                        ›
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {jiraIssue.images.length > 1 && (
+                  <div style={{
+                    padding: 10,
+                    borderTop: "1px solid rgba(148,163,184,0.2)",
+                    display: "flex",
+                    gap: 8,
+                    overflowX: "auto",
+                    background: "rgba(255,255,255,0.02)",
+                  }}>
+                    {jiraIssue.images.map((img, idx) => (
+                      <button
+                        key={`preview-${img.id || idx}`}
+                        onClick={() => setActiveImageIndex(idx)}
+                        style={{
+                          padding: 0,
+                          borderRadius: 6,
+                          background: "none",
+                          border: idx === activeImageIndex ? "2px solid #60a5fa" : "1px solid rgba(148,163,184,0.3)",
+                          opacity: idx === activeImageIndex ? 1 : 0.75,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <img
+                          src={getJiraAttachmentSrc(jiraIssue.key, img.id)}
+                          alt={img.filename || "Jira attachment"}
+                          style={{ width: 72, height: 52, objectFit: "cover", borderRadius: 5, display: "block" }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
