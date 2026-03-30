@@ -73,6 +73,7 @@ JIRA_BEARER_TOKEN=your_token
 # OR
 # JIRA_EMAIL=you@company.com
 # JIRA_API_TOKEN=your_api_token
+# JIRA_ACCEPTANCE_CRITERIA_FIELD=customfield_10039
 ```
 
 Start the bot server:

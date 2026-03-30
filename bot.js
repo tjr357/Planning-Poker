@@ -80,6 +80,7 @@ function jiraConfig() {
     email: process.env.JIRA_EMAIL,
     apiToken: process.env.JIRA_API_TOKEN,
     bearerToken: process.env.JIRA_BEARER_TOKEN,
+    acceptanceCriteriaField: process.env.JIRA_ACCEPTANCE_CRITERIA_FIELD,
   };
 }
 
@@ -105,6 +106,86 @@ function formatFetchError(error) {
   return causeMessage && causeMessage !== message
     ? `${message} (${causeMessage})`
     : message;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function plainTextToHtml(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return escapeHtml(text).replace(/\n/g, "<br/>");
+}
+
+function applyJiraTextMarks(text, marks = []) {
+  return marks.reduce((output, mark) => {
+    switch (mark?.type) {
+      case "strong":
+        return `<strong>${output}</strong>`;
+      case "em":
+        return `<em>${output}</em>`;
+      case "underline":
+        return `<u>${output}</u>`;
+      case "strike":
+        return `<s>${output}</s>`;
+      case "code":
+        return `<code>${output}</code>`;
+      case "link": {
+        const href = mark.attrs?.href;
+        if (!href) return output;
+        return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${output}</a>`;
+      }
+      default:
+        return output;
+    }
+  }, text);
+}
+
+function jiraRichTextToHtml(node) {
+  if (!node) return "";
+  if (Array.isArray(node)) return node.map(jiraRichTextToHtml).join("");
+  if (typeof node === "string") return escapeHtml(node);
+
+  if (node.type === "text") {
+    return applyJiraTextMarks(escapeHtml(node.text || ""), node.marks || []);
+  }
+
+  if (node.type === "hardBreak") {
+    return "<br/>";
+  }
+
+  const content = jiraRichTextToHtml(node.content || []);
+
+  switch (node.type) {
+    case "doc":
+      return content;
+    case "paragraph":
+      return content ? `<p>${content}</p>` : "";
+    case "heading": {
+      const level = Math.min(Math.max(Number(node.attrs?.level) || 3, 1), 6);
+      return `<h${level}>${content}</h${level}>`;
+    }
+    case "blockquote":
+      return `<blockquote>${content}</blockquote>`;
+    case "bulletList":
+      return `<ul>${content}</ul>`;
+    case "orderedList":
+      return `<ol>${content}</ol>`;
+    case "listItem":
+      return `<li>${content}</li>`;
+    case "panel":
+      return `<div>${content}</div>`;
+    case "rule":
+      return "<hr/>";
+    default:
+      return content;
+  }
 }
 
 function jiraRichTextToPlain(node) {
@@ -158,14 +239,45 @@ function jiraFieldValueToText(value) {
   return "";
 }
 
-function extractAcceptanceCriteria(fields = {}, fieldNames = {}) {
+function jiraFieldValueToHtml(value) {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return plainTextToHtml(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(jiraFieldValueToHtml).filter(Boolean).join("");
+  }
+  if (typeof value === "object") {
+    if (value.type || value.content) {
+      return jiraRichTextToHtml(value).trim();
+    }
+    if (typeof value.value === "string") {
+      return plainTextToHtml(value.value);
+    }
+    if (typeof value.name === "string") {
+      return plainTextToHtml(value.name);
+    }
+    if (typeof value.key === "string") {
+      return plainTextToHtml(value.key);
+    }
+    return Object.values(value).map(jiraFieldValueToHtml).filter(Boolean).join("<br/>");
+  }
+  return "";
+}
+
+function findAcceptanceCriteriaValue(fields = {}, fieldNames = {}, configuredFieldKey = "") {
   const directCandidates = [
     fields.acceptanceCriteria,
     fields.acceptance_criteria,
   ];
+
+  if (configuredFieldKey && Object.prototype.hasOwnProperty.call(fields, configuredFieldKey)) {
+    directCandidates.unshift(fields[configuredFieldKey]);
+  }
+
   for (const candidate of directCandidates) {
     const text = jiraFieldValueToText(candidate).trim();
-    if (text) return text;
+    if (text) return candidate;
   }
 
   const byName = Object.entries(fields).find(([fieldKey]) => {
@@ -173,15 +285,15 @@ function extractAcceptanceCriteria(fields = {}, fieldNames = {}) {
     return label.includes("acceptance criteria") || label.includes("acceptance criterion");
   });
   if (byName) {
-    return jiraFieldValueToText(byName[1]).trim();
+    return byName[1];
   }
 
   const byKeyHint = Object.entries(fields).find(([fieldKey]) => /acceptance/i.test(fieldKey));
   if (byKeyHint) {
-    return jiraFieldValueToText(byKeyHint[1]).trim();
+    return byKeyHint[1];
   }
 
-  return "";
+  return null;
 }
 
 function extractParentFeature(fields = {}, cleanBase) {
@@ -217,7 +329,7 @@ function extractLinkedIssues(fields = {}, cleanBase) {
     .filter(Boolean);
 }
 
-function normalizeJiraIssue(data, baseUrl) {
+function normalizeJiraIssue(data, baseUrl, cfg = {}) {
   const fields = data.fields || {};
   const fieldNames = data.names || {};
   const comments = fields.comment?.comments || [];
@@ -238,7 +350,9 @@ function normalizeJiraIssue(data, baseUrl) {
     }));
 
   const cleanBase = baseUrl.replace(/\/$/, "");
-  const acceptanceCriteria = extractAcceptanceCriteria(fields, fieldNames);
+  const acceptanceCriteriaValue = findAcceptanceCriteriaValue(fields, fieldNames, cfg.acceptanceCriteriaField);
+  const acceptanceCriteria = jiraFieldValueToText(acceptanceCriteriaValue).trim();
+  const acceptanceCriteriaHtml = jiraFieldValueToHtml(acceptanceCriteriaValue).trim();
   const linkedIssues = extractLinkedIssues(fields, cleanBase);
   const parentFeature = extractParentFeature(fields, cleanBase);
 
@@ -249,6 +363,7 @@ function normalizeJiraIssue(data, baseUrl) {
     parentFeature,
     linkedIssues,
     acceptanceCriteria,
+    acceptanceCriteriaHtml,
     description: jiraRichTextToPlain(fields.description).trim() || "(no description)",
     notes,
     images,
@@ -279,7 +394,7 @@ async function fetchJiraIssue(issueKey) {
     const data = await response.json();
     return {
       ok: true,
-      issue: normalizeJiraIssue(data, cleanBase),
+      issue: normalizeJiraIssue(data, cleanBase, cfg),
     };
   } catch (error) {
     return { ok: false, error: formatFetchError(error) };

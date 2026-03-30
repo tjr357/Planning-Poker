@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import PropTypes from "prop-types";
 
 const PRESET_DECKS = {
@@ -10,6 +10,13 @@ const PRESET_DECKS = {
 
 const DEMO_USERS = ["Alex", "Jordan", "Sam", "Riley", "Morgan"];
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3978";
+const DEFAULT_JIRA_SECTION_STATE = {
+  description: true,
+  acceptanceCriteria: true,
+  linkedIssues: true,
+  notes: true,
+  images: true,
+};
 
 function extractIssueKey(text) {
   const match = String(text || "").toUpperCase().match(/([A-Z][A-Z0-9]+-\d+)/);
@@ -180,6 +187,7 @@ export default function PlanningPoker() {
   const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
+  const [isLightMode, setIsLightMode] = useState(false);
   const [participants] = useState(DEMO_USERS);
   const [history, setHistory] = useState([]);
   const [jiraIssue, setJiraIssue] = useState(null);
@@ -190,6 +198,7 @@ export default function PlanningPoker() {
   const [jiraFilterError, setJiraFilterError] = useState("");
   const [jiraFilterInfo, setJiraFilterInfo] = useState("");
   const [activeImageIndex, setActiveImageIndex] = useState(null);
+  const [jiraSectionsOpen, setJiraSectionsOpen] = useState(DEFAULT_JIRA_SECTION_STATE);
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
 
@@ -198,6 +207,40 @@ export default function PlanningPoker() {
   const getJiraAttachmentSrc = useCallback((issueKey, attachmentId) => {
     return `${API_BASE_URL}/api/jira/${encodeURIComponent(issueKey)}/attachment/${encodeURIComponent(attachmentId)}`;
   }, []);
+
+  useEffect(() => {
+    setJiraSectionsOpen(DEFAULT_JIRA_SECTION_STATE);
+  }, [jiraIssue?.key]);
+
+  const toggleJiraSection = (sectionKey) => {
+    setJiraSectionsOpen((current) => ({ ...current, [sectionKey]: !current[sectionKey] }));
+  };
+
+  const getJiraSectionHeaderStyle = (isOpen) => ({
+    margin: "-10px -12px 0",
+    padding: "10px 12px",
+    borderRadius: isOpen ? "10px 10px 0 0" : "10px",
+    borderBottom: isOpen ? "1px solid rgba(148,163,184,0.18)" : "none",
+    background: isOpen ? "rgba(96,165,250,0.06)" : "transparent",
+    marginBottom: isOpen ? 8 : 0,
+  });
+
+  const getJiraChevronStyle = (isOpen) => ({
+    width: 28,
+    height: 28,
+    borderRadius: "50%",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: isOpen ? "rgba(96,165,250,0.14)" : "rgba(148,163,184,0.12)",
+    border: isOpen ? "1px solid rgba(96,165,250,0.35)" : "1px solid rgba(148,163,184,0.2)",
+    color: isOpen ? "#bfdbfe" : "#cbd5e1",
+    fontSize: 18,
+    fontWeight: 800,
+    lineHeight: 1,
+    flexShrink: 0,
+    transition: "all 0.15s ease",
+  });
 
   const loadJiraForStory = useCallback(async (story) => {
     const key = extractIssueKey(story);
@@ -349,20 +392,98 @@ export default function PlanningPoker() {
   const avg = voteValues.length ? (voteValues.reduce((a, b) => a + b, 0) / voteValues.length).toFixed(1) : null;
   const min = voteValues.length ? Math.min(...voteValues) : null;
   const max = voteValues.length ? Math.max(...voteValues) : null;
+  const issueType = jiraIssue?.issueType || "Unknown";
+  const issueTypePillStyles = {
+    Story: {
+      background: "rgba(34,197,94,0.14)",
+      border: "1px solid rgba(34,197,94,0.35)",
+      color: "#86efac",
+    },
+    Task: {
+      background: "rgba(59,130,246,0.14)",
+      border: "1px solid rgba(59,130,246,0.35)",
+      color: "#93c5fd",
+    },
+    Bug: {
+      background: "rgba(239,68,68,0.14)",
+      border: "1px solid rgba(239,68,68,0.35)",
+      color: "#fca5a5",
+    },
+    default: {
+      background: "rgba(148,163,184,0.12)",
+      border: "1px solid rgba(148,163,184,0.3)",
+      color: "#cbd5e1",
+    },
+  };
+  const activeIssueTypePillStyle = issueTypePillStyles[issueType] || issueTypePillStyles.default;
+  const theme = isLightMode
+    ? {
+        appBg: "#f3f7fb",
+        text: "#0f172a",
+        mutedText: "#475569",
+        subtleText: "#64748b",
+        headerBg: "rgba(255,255,255,0.82)",
+        headerBorder: "rgba(148,163,184,0.24)",
+        panelBg: "rgba(255,255,255,0.88)",
+        panelAltBg: "rgba(248,250,252,0.98)",
+        panelBorder: "rgba(148,163,184,0.22)",
+        inputBg: "#ffffff",
+        inputBorder: "rgba(148,163,184,0.35)",
+        inputText: "#0f172a",
+        badgeBg: "rgba(59,130,246,0.1)",
+        badgeText: "#2563eb",
+        badgeBorder: "rgba(59,130,246,0.18)",
+        scrollbar: "rgba(100,116,139,0.3)",
+        jiraText: "#1e293b",
+        jiraLabel: "#64748b",
+        jiraCardBg: "rgba(255,255,255,0.92)",
+        jiraCardBorder: "rgba(148,163,184,0.2)",
+        jiraCardShadow: "inset 0 1px 0 rgba(255,255,255,0.9)",
+        jiraBlockquote: "#64748b",
+        jiraCodeBg: "rgba(226,232,240,0.9)",
+        jiraDivider: "rgba(148,163,184,0.28)",
+      }
+    : {
+        appBg: "#020817",
+        text: "#e2e8f0",
+        mutedText: "#94a3b8",
+        subtleText: "#475569",
+        headerBg: "rgba(255,255,255,0.02)",
+        headerBorder: "rgba(255,255,255,0.06)",
+        panelBg: "rgba(255,255,255,0.03)",
+        panelAltBg: "rgba(30,41,59,0.6)",
+        panelBorder: "rgba(255,255,255,0.08)",
+        inputBg: "rgba(255,255,255,0.04)",
+        inputBorder: "rgba(255,255,255,0.1)",
+        inputText: "#e2e8f0",
+        badgeBg: "rgba(99,179,237,0.1)",
+        badgeText: "#60a5fa",
+        badgeBorder: "rgba(99,179,237,0.2)",
+        scrollbar: "rgba(255,255,255,0.1)",
+        jiraText: "#cbd5e1",
+        jiraLabel: "#94a3b8",
+        jiraCardBg: "rgba(255,255,255,0.03)",
+        jiraCardBorder: "rgba(148,163,184,0.14)",
+        jiraCardShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+        jiraBlockquote: "#94a3b8",
+        jiraCodeBg: "rgba(148,163,184,0.16)",
+        jiraDivider: "rgba(148,163,184,0.25)",
+      };
 
   const styles = {
     app: {
       minHeight: "100vh",
-      background: "#020817",
-      color: "#e2e8f0",
+      background: theme.appBg,
+      color: theme.text,
       fontFamily: "'Segoe UI', system-ui, sans-serif",
       display: "flex", flexDirection: "column",
+      transition: "background 0.2s ease, color 0.2s ease",
     },
     header: {
-      borderBottom: "1px solid rgba(255,255,255,0.06)",
+      borderBottom: `1px solid ${theme.headerBorder}`,
       padding: "12px 24px",
       display: "flex", alignItems: "center", gap: 12,
-      background: "rgba(255,255,255,0.02)",
+      background: theme.headerBg,
     },
     logo: {
       fontSize: 22, fontWeight: 800, letterSpacing: -1,
@@ -372,32 +493,55 @@ export default function PlanningPoker() {
     },
     badge: {
       fontSize: 10, padding: "2px 8px", borderRadius: 20,
-      background: "rgba(99,179,237,0.1)", color: "#60a5fa",
-      border: "1px solid rgba(99,179,237,0.2)", fontWeight: 600,
+      background: theme.badgeBg, color: theme.badgeText,
+      border: `1px solid ${theme.badgeBorder}`, fontWeight: 600,
       letterSpacing: 1, textTransform: "uppercase",
     },
   };
 
   return (
-    <div style={styles.app}>
+    <div className={`planning-poker-app ${isLightMode ? "light-mode" : "dark-mode"}`} style={styles.app}>
       <style>{`
         @keyframes flipIn { from { transform: rotateY(90deg) scale(0.8); opacity: 0; } to { transform: rotateY(0) scale(1); opacity: 1; } }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: ${theme.scrollbar}; border-radius: 2px; }
         input, textarea { outline: none; }
         button { cursor: pointer; }
+        .app-input { background: ${theme.inputBg} !important; border: 1px solid ${theme.inputBorder} !important; color: ${theme.inputText} !important; }
+        .app-panel { background: ${theme.panelBg} !important; border: 1px solid ${theme.panelBorder} !important; }
+        .app-panel-alt { background: ${theme.panelAltBg} !important; border: 1px solid ${theme.panelBorder} !important; }
+        .app-subtle-text { color: ${theme.subtleText} !important; }
+        .app-muted-text { color: ${theme.mutedText} !important; }
+        .app-secondary-button { background: ${theme.panelBg} !important; border: 1px solid ${theme.inputBorder} !important; color: ${theme.mutedText} !important; border-radius: 8px; }
+        .jira-rich-text { color: ${theme.jiraText}; line-height: 1.55; }
+        .jira-rich-text p, .jira-rich-text h1, .jira-rich-text h2, .jira-rich-text h3, .jira-rich-text h4, .jira-rich-text h5, .jira-rich-text h6, .jira-rich-text blockquote, .jira-rich-text ul, .jira-rich-text ol { margin: 0 0 8px; }
+        .jira-rich-text ul, .jira-rich-text ol { padding-left: 18px; }
+        .jira-rich-text li { margin-bottom: 4px; }
+        .jira-rich-text a { color: #2563eb; }
+        .jira-rich-text blockquote { padding-left: 10px; border-left: 2px solid ${theme.jiraDivider}; color: ${theme.jiraBlockquote}; }
+        .jira-rich-text code { padding: 1px 4px; border-radius: 4px; background: ${theme.jiraCodeBg}; color: ${theme.text}; }
+        .jira-rich-text hr { border: 0; border-top: 1px solid ${theme.jiraDivider}; margin: 10px 0; }
+        .jira-field-card { padding: 10px 12px; border-radius: 10px; background: ${theme.jiraCardBg}; border: 1px solid ${theme.jiraCardBorder}; box-shadow: ${theme.jiraCardShadow}; }
+        .jira-field-label { font-size: 10px; color: ${theme.jiraLabel}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 6px; }
+        .jira-field-value { font-size: 12px; color: ${theme.text}; }
+        .jira-field-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: none; border: none; padding: 0; color: inherit; text-align: left; }
       `}</style>
 
       <div style={styles.header}>
         <span style={styles.logo}>♠ PlanningPoker</span>
         <span style={styles.badge}>Teams</span>
+        <button
+          onClick={() => setIsLightMode((current) => !current)}
+          className="app-secondary-button"
+          style={{ marginLeft: "auto", fontSize: 12, padding: "6px 12px", fontWeight: 700 }}
+        >
+          {isLightMode ? "☾ Dark" : "☀ Light"}
+        </button>
         {view !== "lobby" && (
-          <button onClick={() => setView("lobby")} style={{
-            marginLeft: "auto", fontSize: 12, padding: "4px 12px",
-            background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
-            color: "#94a3b8", borderRadius: 6,
+          <button onClick={() => setView("lobby")} className="app-secondary-button" style={{
+            fontSize: 12, padding: "6px 12px", fontWeight: 700,
           }}>← Lobby</button>
         )}
       </div>
@@ -407,18 +551,18 @@ export default function PlanningPoker() {
           <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 4, letterSpacing: -1 }}>
             New Session
           </h1>
-          <p style={{ color: "#475569", fontSize: 14, marginBottom: 32 }}>
+          <p className="app-subtle-text" style={{ fontSize: 14, marginBottom: 32 }}>
             Configure your planning poker session for the team.
           </p>
 
           {/* Tabs */}
-          <div style={{ display: "flex", gap: 2, marginBottom: 24, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ display: "flex", gap: 2, marginBottom: 24, borderBottom: `1px solid ${theme.headerBorder}` }}>
             {[["deck", "🃏 Deck"], ["stories", "📋 Stories"], ["participants", "👥 Participants"]].map(([key, label]) => (
               <button key={key} onClick={() => setTab(key)} style={{
                 padding: "8px 16px", fontSize: 13, fontWeight: 600,
                 background: "none", border: "none",
                 borderBottom: tab === key ? "2px solid #60a5fa" : "2px solid transparent",
-                color: tab === key ? "#60a5fa" : "#475569",
+                color: tab === key ? "#60a5fa" : theme.subtleText,
                 transition: "all 0.15s",
               }}>{label}</button>
             ))}
@@ -445,20 +589,20 @@ export default function PlanningPoker() {
 
               {deck === "custom" && (
                 <textarea
+                  className="app-input"
                   placeholder="Enter comma-separated values: 1, 2, 3, 5, 8, ?, ☕"
                   value={customCards}
                   onChange={e => { setCustomCards(e.target.value); setActiveCards(e.target.value.split(",").map(v => v.trim()).filter(Boolean)); }}
                   style={{
                     width: "100%", minHeight: 60, padding: "10px 14px", marginBottom: 16,
-                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 8, color: "#e2e8f0", fontSize: 13, resize: "vertical",
+                    borderRadius: 8, fontSize: 13, resize: "vertical",
                     boxSizing: "border-box",
                   }}
                 />
               )}
 
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, color: "#475569", marginBottom: 8, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+                <div className="app-subtle-text" style={{ fontSize: 12, marginBottom: 8, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
                   Current Deck Preview
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -468,14 +612,14 @@ export default function PlanningPoker() {
 
               <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
                 <input
+                  className="app-input"
                   placeholder="Add a card value..."
                   value={addCardInput}
                   onChange={e => setAddCardInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleAddCard()}
                   style={{
                     flex: 1, padding: "8px 12px",
-                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 8, color: "#e2e8f0", fontSize: 13,
+                    borderRadius: 8, fontSize: 13,
                   }}
                 />
                 <button onClick={handleAddCard} style={{
@@ -488,23 +632,22 @@ export default function PlanningPoker() {
 
           {tab === "stories" && (
             <div style={{ animation: "slideUp 0.2s ease" }}>
-              <div style={{
+              <div className="app-panel" style={{
                 padding: "12px", borderRadius: 10, marginBottom: 14,
-                background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
               }}>
-                <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 8, fontWeight: 700, letterSpacing: 0.5 }}>
+                <div className="app-muted-text" style={{ fontSize: 12, marginBottom: 8, fontWeight: 700, letterSpacing: 0.5 }}>
                   Load From Jira Filter
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input
+                    className="app-input"
                     placeholder="Filter ID (e.g. 12345) or exact filter name"
                     value={jiraFilterInput}
                     onChange={(e) => setJiraFilterInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && loadStoriesFromJiraFilter()}
                     style={{
                       flex: 1, padding: "8px 12px",
-                      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: 8, color: "#e2e8f0", fontSize: 13,
+                      borderRadius: 8, fontSize: 13,
                     }}
                   />
                   <button
@@ -524,13 +667,13 @@ export default function PlanningPoker() {
               </div>
 
               <div style={{
-                border: "2px dashed rgba(255,255,255,0.1)", borderRadius: 12,
+                border: `2px dashed ${theme.inputBorder}`, borderRadius: 12,
                 padding: 24, textAlign: "center", marginBottom: 20, cursor: "pointer",
-                background: "rgba(255,255,255,0.02)",
+                background: theme.panelBg,
               }} onClick={() => fileRef.current.click()}>
                 <div style={{ fontSize: 28, marginBottom: 8 }}>📂</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "#94a3b8" }}>Drop a CSV file or click to browse</div>
-                <div style={{ fontSize: 12, color: "#475569", marginTop: 4 }}>One story per row. First column = story title.</div>
+                <div className="app-muted-text" style={{ fontSize: 14, fontWeight: 600 }}>Drop a CSV file or click to browse</div>
+                <div className="app-subtle-text" style={{ fontSize: 12, marginTop: 4 }}>One story per row. First column = story title.</div>
                 <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }} onChange={handleCSV} />
               </div>
 
@@ -552,15 +695,14 @@ export default function PlanningPoker() {
                 </div>
               )}
 
-              <div style={{ fontSize: 12, color: "#475569", marginBottom: 8, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Add Stories Manually</div>
+              <div className="app-subtle-text" style={{ fontSize: 12, marginBottom: 8, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Add Stories Manually</div>
               {stories.map((s, i) => (
                 <div key={i} style={{
                   display: "flex", alignItems: "center", gap: 8, marginBottom: 6,
                 }}>
-                  <div style={{
+                  <div className="app-panel" style={{
                     flex: 1, padding: "6px 12px", borderRadius: 6,
-                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                    fontSize: 13, color: "#94a3b8",
+                    fontSize: 13, color: theme.mutedText,
                   }}>{s}</div>
                   <button onClick={() => setStories(st => st.filter((_, j) => j !== i))} style={{
                     background: "none", border: "none", color: "#475569", fontSize: 16,
@@ -569,14 +711,14 @@ export default function PlanningPoker() {
               ))}
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <input
+                  className="app-input"
                   placeholder="Story title or ticket number..."
                   value={storyInput}
                   onChange={e => setStoryInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && storyInput.trim()) { setStories(s => [...s, storyInput.trim()]); setStoryInput(""); } }}
                   style={{
                     flex: 1, padding: "8px 12px",
-                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 8, color: "#e2e8f0", fontSize: 13,
+                    borderRadius: 8, fontSize: 13,
                   }}
                 />
                 <button onClick={() => { if (storyInput.trim()) { setStories(s => [...s, storyInput.trim()]); setStoryInput(""); } }} style={{
@@ -589,21 +731,20 @@ export default function PlanningPoker() {
 
           {tab === "participants" && (
             <div style={{ animation: "slideUp 0.2s ease" }}>
-              <div style={{ fontSize: 12, color: "#475569", marginBottom: 12 }}>
+              <div className="app-subtle-text" style={{ fontSize: 12, marginBottom: 12 }}>
                 In Teams, participants join automatically when they open the tab in the channel.
               </div>
               {participants.map((p, i) => (
-                <div key={i} style={{
+                <div key={i} className="app-panel" style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
                   marginBottom: 6, borderRadius: 8,
-                  background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
                 }}>
                   <div style={{
                     width: 28, height: 28, borderRadius: "50%",
                     background: `hsl(${i * 60}, 60%, 35%)`, display: "flex",
                     alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700,
                   }}>{p[0]}</div>
-                  <span style={{ fontSize: 13, color: "#94a3b8" }}>{p}</span>
+                  <span style={{ fontSize: 13, color: theme.mutedText }}>{p}</span>
                   {i === 0 && <span style={{ marginLeft: "auto", fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>}
                 </div>
               ))}
@@ -626,24 +767,59 @@ export default function PlanningPoker() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: "24px", maxWidth: 800, margin: "0 auto", width: "90%", animation: "slideUp 0.3s ease" }}>
 
           {/* Story header */}
-          <div style={{
+          <div className="app-panel" style={{
             padding: "16px 20px", borderRadius: 12, marginBottom: 24,
-            background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)",
           }}>
-            <div style={{ fontSize: 11, color: "#475569", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>
-              Story {storyIndex + 1} {allStories.length > 0 ? `of ${allStories.length}` : ""}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 4 }}>
+              <div style={{ fontSize: 11, color: theme.subtleText, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+                Story {storyIndex + 1} {allStories.length > 0 ? `of ${allStories.length}` : ""}
+              </div>
+              {jiraIssue?.parentFeature?.key && (
+                <div style={{
+                  maxWidth: "45%",
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  background: "rgba(96,165,250,0.12)",
+                  border: "1px solid rgba(96,165,250,0.28)",
+                  color: "#bfdbfe",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  lineHeight: 1.35,
+                  textAlign: "right",
+                }}>
+                  <span style={{ color: "#93c5fd", textTransform: "uppercase", letterSpacing: 0.5 }}>Parent Feature</span>
+                  <div style={{ marginTop: 2 }}>
+                    {`${jiraIssue.parentFeature.key}${jiraIssue.parentFeature.summary ? `: ${jiraIssue.parentFeature.summary}` : ""}`}
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: "#e2e8f0" }}>{currentStory}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: theme.text }}>
+                {jiraIssue?.key ? `${jiraIssue.key}: ${jiraIssue.summary || currentStory}` : currentStory}
+              </div>
+              {jiraIssue?.issueType && (
+                <span style={{
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: 0.4,
+                  textTransform: "uppercase",
+                  ...activeIssueTypePillStyle,
+                }}>
+                  {jiraIssue.issueType}
+                </span>
+              )}
+            </div>
 
             {(jiraLoading || jiraIssue || jiraError) && (
-              <div style={{
+              <div className="app-panel-alt" style={{
                 marginTop: 12,
                 padding: "12px",
                 borderRadius: 10,
-                background: "rgba(30,41,59,0.6)",
-                border: "1px solid rgba(148,163,184,0.2)",
               }}>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 8, fontWeight: 700, letterSpacing: 0.5 }}>
+                <div className="app-muted-text" style={{ fontSize: 11, marginBottom: 8, fontWeight: 700, letterSpacing: 0.5 }}>
                   Jira Details
                 </div>
 
@@ -651,48 +827,73 @@ export default function PlanningPoker() {
                 {jiraError && <div style={{ fontSize: 12, color: "#fca5a5" }}>{jiraError}</div>}
 
                 {jiraIssue && (
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
-                      <strong>Jira:</strong> {jiraIssue.key}
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div className="jira-field-card">
+                      <button className="jira-field-toggle" onClick={() => toggleJiraSection("description")} style={getJiraSectionHeaderStyle(jiraSectionsOpen.description)}>
+                        <div className="jira-field-label" style={{ marginBottom: 0 }}>Description</div>
+                        <span style={getJiraChevronStyle(jiraSectionsOpen.description)}>{jiraSectionsOpen.description ? "▾" : "▸"}</span>
+                      </button>
+                      {jiraSectionsOpen.description && (
+                        <div className="jira-field-value" style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+                          {jiraIssue.description || "(no description)"}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
-                      <strong>Issue Type:</strong> {jiraIssue.issueType || "Unknown"}
+                    <div className="jira-field-card">
+                      <button className="jira-field-toggle" onClick={() => toggleJiraSection("acceptanceCriteria")} style={getJiraSectionHeaderStyle(jiraSectionsOpen.acceptanceCriteria)}>
+                        <div className="jira-field-label" style={{ marginBottom: 0 }}>Acceptance Criteria</div>
+                        <span style={getJiraChevronStyle(jiraSectionsOpen.acceptanceCriteria)}>{jiraSectionsOpen.acceptanceCriteria ? "▾" : "▸"}</span>
+                      </button>
+                      {jiraSectionsOpen.acceptanceCriteria && (
+                        jiraIssue.acceptanceCriteriaHtml ? (
+                          <div
+                            className="jira-rich-text jira-field-value"
+                            style={{ marginTop: 8 }}
+                            dangerouslySetInnerHTML={{ __html: jiraIssue.acceptanceCriteriaHtml }}
+                          />
+                        ) : (
+                          <div className="jira-field-value" style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+                            {jiraIssue.acceptanceCriteria || "(none)"}
+                          </div>
+                        )
+                      )}
                     </div>
-                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
-                      <strong>Summary:</strong> {jiraIssue.summary}
+                    <div className="jira-field-card">
+                      <button className="jira-field-toggle" onClick={() => toggleJiraSection("linkedIssues")} style={getJiraSectionHeaderStyle(jiraSectionsOpen.linkedIssues)}>
+                        <div className="jira-field-label" style={{ marginBottom: 0 }}>Linked Issues</div>
+                        <span style={getJiraChevronStyle(jiraSectionsOpen.linkedIssues)}>{jiraSectionsOpen.linkedIssues ? "▾" : "▸"}</span>
+                      </button>
+                      {jiraSectionsOpen.linkedIssues && (
+                        <div className="jira-field-value" style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+                          {Array.isArray(jiraIssue.linkedIssues) && jiraIssue.linkedIssues.length
+                            ? jiraIssue.linkedIssues
+                                .map((item) => `${item.relationship}: ${item.key}${item.summary ? ` - ${item.summary}` : ""}`)
+                                .join("\n")
+                            : "(none)"}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: 12, color: "#cbd5e1" }}>
-                      <strong>Parent Feature:</strong>{" "}
-                      {jiraIssue.parentFeature?.key
-                        ? `${jiraIssue.parentFeature.key}${jiraIssue.parentFeature.summary ? `: ${jiraIssue.parentFeature.summary}` : ""}`
-                        : "(none)"}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
-                      <strong>Acceptance Criteria:</strong>{" "}
-                      {jiraIssue.acceptanceCriteria || "(none)"}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
-                      <strong>Description:</strong> {jiraIssue.description || "(no description)"}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
-                      <strong>Linked Issues:</strong>{" "}
-                      {Array.isArray(jiraIssue.linkedIssues) && jiraIssue.linkedIssues.length
-                        ? jiraIssue.linkedIssues
-                            .map((item) => `${item.relationship}: ${item.key}${item.summary ? ` - ${item.summary}` : ""}`)
-                            .join("\n")
-                        : "(none)"}
-                    </div>
-                    <div style={{ fontSize: 12, color: "#cbd5e1", whiteSpace: "pre-wrap" }}>
-                      <strong>Notes:</strong>{" "}
-                      {Array.isArray(jiraIssue.notes) && jiraIssue.notes.length
-                        ? jiraIssue.notes.join("\n")
-                        : "(no notes)"}
+                    <div className="jira-field-card">
+                      <button className="jira-field-toggle" onClick={() => toggleJiraSection("notes")} style={getJiraSectionHeaderStyle(jiraSectionsOpen.notes)}>
+                        <div className="jira-field-label" style={{ marginBottom: 0 }}>Notes</div>
+                        <span style={getJiraChevronStyle(jiraSectionsOpen.notes)}>{jiraSectionsOpen.notes ? "▾" : "▸"}</span>
+                      </button>
+                      {jiraSectionsOpen.notes && (
+                        <div className="jira-field-value" style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>
+                          {Array.isArray(jiraIssue.notes) && jiraIssue.notes.length
+                            ? jiraIssue.notes.join("\n")
+                            : "(no notes)"}
+                        </div>
+                      )}
                     </div>
 
-                    <div>
-                      <div style={{ fontSize: 12, color: "#cbd5e1", marginBottom: 6 }}><strong>Images:</strong></div>
-                      {Array.isArray(jiraIssue.images) && jiraIssue.images.length > 0 ? (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    <div className="jira-field-card">
+                      <button className="jira-field-toggle" onClick={() => toggleJiraSection("images")} style={getJiraSectionHeaderStyle(jiraSectionsOpen.images)}>
+                        <div className="jira-field-label" style={{ marginBottom: 0 }}>Images</div>
+                        <span style={getJiraChevronStyle(jiraSectionsOpen.images)}>{jiraSectionsOpen.images ? "▾" : "▸"}</span>
+                      </button>
+                      {jiraSectionsOpen.images && (Array.isArray(jiraIssue.images) && jiraIssue.images.length > 0 ? (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
                           {jiraIssue.images.map((img, imageIndex) => {
                             const attachmentSrc = getJiraAttachmentSrc(jiraIssue.key, img.id);
                             return (
@@ -724,8 +925,8 @@ export default function PlanningPoker() {
                           })}
                         </div>
                       ) : (
-                        <div style={{ fontSize: 12, color: "#cbd5e1" }}>(none)</div>
-                      )}
+                        <div className="jira-field-value" style={{ marginTop: 8 }}>(none)</div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -735,7 +936,7 @@ export default function PlanningPoker() {
             <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{
                 height: 4, flex: 1, borderRadius: 2,
-                background: "rgba(255,255,255,0.06)",
+                background: theme.headerBorder,
               }}>
                 <div style={{
                   height: "100%", borderRadius: 2,
@@ -754,11 +955,10 @@ export default function PlanningPoker() {
           </div>
 
           {/* Voting table */}
-          <div style={{
+          <div className="app-panel" style={{
             padding: "20px", borderRadius: 12, marginBottom: 24,
-            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
           }}>
-            <div style={{ fontSize: 12, color: "#475569", fontWeight: 600, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>
+            <div className="app-subtle-text" style={{ fontSize: 12, fontWeight: 600, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>
               Table
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -802,7 +1002,7 @@ export default function PlanningPoker() {
 
           {/* Card hand */}
           <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 12, color: "#475569", fontWeight: 600, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+            <div className="app-subtle-text" style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
               {myVote ? `Your vote: ${myVote}` : "Pick your estimate"}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -843,16 +1043,15 @@ export default function PlanningPoker() {
           {/* History */}
           {history.length > 0 && (
             <div style={{ marginTop: 24 }}>
-              <div style={{ fontSize: 12, color: "#475569", fontWeight: 600, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
+              <div className="app-subtle-text" style={{ fontSize: 12, fontWeight: 600, marginBottom: 10, textTransform: "uppercase", letterSpacing: 1 }}>
                 Completed
               </div>
               {history.map((h, i) => (
-                <div key={i} style={{
+                <div key={i} className="app-panel" style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center",
                   padding: "8px 12px", marginBottom: 6, borderRadius: 8,
-                  background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
                 }}>
-                  <span style={{ fontSize: 13, color: "#64748b" }}>{h.story}</span>
+                  <span style={{ fontSize: 13, color: theme.subtleText }}>{h.story}</span>
                   <span style={{
                     fontSize: 13, fontWeight: 700, color: "#10b981",
                     fontFamily: "monospace", minWidth: 30, textAlign: "right",
@@ -868,7 +1067,7 @@ export default function PlanningPoker() {
               style={{
                 position: "fixed",
                 inset: 0,
-                background: "rgba(2,8,23,0.88)",
+                background: isLightMode ? "rgba(241,245,249,0.88)" : "rgba(2,8,23,0.88)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -882,8 +1081,8 @@ export default function PlanningPoker() {
                   width: "min(980px, 100%)",
                   maxHeight: "90vh",
                   borderRadius: 12,
-                  background: "#0b1220",
-                  border: "1px solid rgba(148,163,184,0.25)",
+                  background: theme.panelAltBg,
+                  border: `1px solid ${theme.panelBorder}`,
                   display: "flex",
                   flexDirection: "column",
                   overflow: "hidden",
@@ -892,9 +1091,9 @@ export default function PlanningPoker() {
                 <div style={{
                   display: "flex", alignItems: "center", gap: 8,
                   padding: "10px 12px",
-                  borderBottom: "1px solid rgba(148,163,184,0.2)",
+                  borderBottom: `1px solid ${theme.panelBorder}`,
                 }}>
-                  <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>
+                  <span style={{ fontSize: 12, color: theme.mutedText, fontWeight: 700 }}>
                     Image {activeImageIndex + 1} of {jiraIssue.images.length}
                   </span>
                   <button
@@ -907,9 +1106,9 @@ export default function PlanningPoker() {
                       marginLeft: "auto",
                       padding: "6px 10px",
                       borderRadius: 8,
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(148,163,184,0.3)",
-                      color: "#cbd5e1",
+                      background: theme.panelBg,
+                      border: `1px solid ${theme.inputBorder}`,
+                      color: theme.text,
                       fontSize: 12,
                       fontWeight: 600,
                     }}
@@ -934,7 +1133,7 @@ export default function PlanningPoker() {
 
                 <div style={{
                   position: "relative",
-                  background: "#020817",
+                  background: isLightMode ? "#ffffff" : "#020817",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -960,8 +1159,9 @@ export default function PlanningPoker() {
                         style={{
                           position: "absolute", left: 10,
                           width: 34, height: 34, borderRadius: "50%",
-                          background: "rgba(2,8,23,0.72)", border: "1px solid rgba(148,163,184,0.35)",
-                          color: "#e2e8f0", fontSize: 18, fontWeight: 700,
+                          background: isLightMode ? "rgba(255,255,255,0.94)" : "rgba(2,8,23,0.72)",
+                          border: `1px solid ${theme.inputBorder}`,
+                          color: theme.text, fontSize: 18, fontWeight: 700,
                         }}
                       >
                         ‹
@@ -971,8 +1171,9 @@ export default function PlanningPoker() {
                         style={{
                           position: "absolute", right: 10,
                           width: 34, height: 34, borderRadius: "50%",
-                          background: "rgba(2,8,23,0.72)", border: "1px solid rgba(148,163,184,0.35)",
-                          color: "#e2e8f0", fontSize: 18, fontWeight: 700,
+                          background: isLightMode ? "rgba(255,255,255,0.94)" : "rgba(2,8,23,0.72)",
+                          border: `1px solid ${theme.inputBorder}`,
+                          color: theme.text, fontSize: 18, fontWeight: 700,
                         }}
                       >
                         ›
@@ -984,11 +1185,11 @@ export default function PlanningPoker() {
                 {jiraIssue.images.length > 1 && (
                   <div style={{
                     padding: 10,
-                    borderTop: "1px solid rgba(148,163,184,0.2)",
+                    borderTop: `1px solid ${theme.panelBorder}`,
                     display: "flex",
                     gap: 8,
                     overflowX: "auto",
-                    background: "rgba(255,255,255,0.02)",
+                    background: theme.panelBg,
                   }}>
                     {jiraIssue.images.map((img, idx) => (
                       <button
