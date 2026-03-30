@@ -180,7 +180,8 @@ export default function PlanningPoker() {
   const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
-  const [participants] = useState(DEMO_USERS);
+  const [participants, setParticipants] = useState(DEMO_USERS);
+  const [participantInput, setParticipantInput] = useState("");
   const [history, setHistory] = useState([]);
   const [jiraIssue, setJiraIssue] = useState(null);
   const [jiraLoading, setJiraLoading] = useState(false);
@@ -231,18 +232,18 @@ export default function PlanningPoker() {
     setStoryIndex(0);
     setView("session");
     // Simulate other users voting after a delay
-    simulateVotes();
+    simulateVotes(participants);
   };
 
-  const simulateVotes = useCallback(() => {
-    const others = DEMO_USERS.slice(1);
+  const simulateVotes = useCallback((currentParticipants) => {
+    const others = (currentParticipants || participants).slice(1);
     const cards = activeCards.filter(c => c !== "?" && c !== "☕");
     others.forEach((user, i) => {
       setTimeout(() => {
         setVotes(v => ({ ...v, [user]: cards[Math.floor(Math.random() * cards.length)] }));
       }, 1200 + i * 800);
     });
-  }, [activeCards]);
+  }, [activeCards, participants]);
 
   const castVote = (val) => {
     setMyVote(val);
@@ -267,7 +268,7 @@ export default function PlanningPoker() {
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
-    simulateVotes();
+    simulateVotes(participants);
   };
 
   const getConsensus = () => {
@@ -584,9 +585,6 @@ export default function PlanningPoker() {
 
           {tab === "participants" && (
             <div style={{ animation: "slideUp 0.2s ease" }}>
-              <div style={{ fontSize: 12, color: "#475569", marginBottom: 12 }}>
-                In Teams, participants join automatically when they open the tab in the channel.
-              </div>
               {participants.map((p, i) => (
                 <div key={i} style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
@@ -597,11 +595,45 @@ export default function PlanningPoker() {
                     width: 28, height: 28, borderRadius: "50%",
                     background: `hsl(${i * 60}, 60%, 35%)`, display: "flex",
                     alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700,
+                    flexShrink: 0,
                   }}>{p[0]}</div>
-                  <span style={{ fontSize: 13, color: "#94a3b8" }}>{p}</span>
-                  {i === 0 && <span style={{ marginLeft: "auto", fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>}
+                  <span style={{ fontSize: 13, color: "#94a3b8", flex: 1 }}>{p}</span>
+                  {i === 0
+                    ? <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>
+                    : <button onClick={() => setParticipants(ps => ps.filter((_, j) => j !== i))} style={{
+                        background: "none", border: "none", color: "#475569", fontSize: 18,
+                        lineHeight: 1, padding: "0 2px",
+                      }}>×</button>
+                  }
                 </div>
               ))}
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <input
+                  placeholder="Add participant name..."
+                  value={participantInput}
+                  onChange={e => setParticipantInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && participantInput.trim() && !participants.includes(participantInput.trim())) {
+                      setParticipants(ps => [...ps, participantInput.trim()]);
+                      setParticipantInput("");
+                    }
+                  }}
+                  style={{
+                    flex: 1, padding: "8px 12px",
+                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 8, color: "#e2e8f0", fontSize: 13,
+                  }}
+                />
+                <button onClick={() => {
+                  if (participantInput.trim() && !participants.includes(participantInput.trim())) {
+                    setParticipants(ps => [...ps, participantInput.trim()]);
+                    setParticipantInput("");
+                  }
+                }} style={{
+                  padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                  background: "rgba(99,102,241,0.2)", border: "1px solid #6366f1", color: "#a5b4fc",
+                }}>+ Add</button>
+              </div>
             </div>
           )}
 
