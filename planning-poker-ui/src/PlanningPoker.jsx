@@ -187,6 +187,7 @@ export default function PlanningPoker() {
   const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
+  const [isLightMode, setIsLightMode] = useState(false);
   const [finalEstimate, setFinalEstimate] = useState("");
   const [isLightMode, setIsLightMode] = useState(false);
   const [participants, setParticipants] = useState(DEMO_USERS);
@@ -824,7 +825,7 @@ export default function PlanningPoker() {
                     alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700,
                     flexShrink: 0,
                   }}>{p[0]}</div>
-                  <span style={{ fontSize: 13, color: "#94a3b8", flex: 1 }}>{p}</span>
+                  <span style={{ fontSize: 13, color: theme.mutedText, flex: 1 }}>{p}</span>
                   {i === 0
                     ? <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>
                     : <button onClick={() => setParticipants(ps => ps.filter((_, j) => j !== i))} style={{
