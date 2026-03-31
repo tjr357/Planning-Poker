@@ -187,7 +187,6 @@ export default function PlanningPoker() {
   const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
-  const [isLightMode, setIsLightMode] = useState(false);
   const [finalEstimate, setFinalEstimate] = useState("");
   const [isLightMode, setIsLightMode] = useState(false);
   const [participants, setParticipants] = useState(DEMO_USERS);
