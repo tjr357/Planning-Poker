@@ -219,8 +219,12 @@ export default function PlanningPoker() {
   };
 
   const getJiraSectionHeaderStyle = (isOpen) => ({
-    margin: "-10px -12px 0",
+    width: "calc(100% + 24px)",
+    marginTop: -10,
+    marginLeft: -12,
+    marginRight: -12,
     padding: "10px 12px",
+    boxSizing: "border-box",
     borderRadius: isOpen ? "10px 10px 0 0" : "10px",
     borderBottom: isOpen ? "1px solid rgba(148,163,184,0.18)" : "none",
     background: isOpen ? "rgba(96,165,250,0.06)" : "transparent",
