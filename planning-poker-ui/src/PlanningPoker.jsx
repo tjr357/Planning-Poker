@@ -281,6 +281,15 @@ export default function PlanningPoker() {
     return String(nearest ?? Math.round(avg));
   };
 
+  const endSession = () => {
+    // Save current story if it has been revealed and voted on
+    const updatedHistory = revealed && myVote
+      ? [...history, { story: currentStory, votes: { ...votes }, result: getConsensus() }]
+      : history;
+    setHistory(updatedHistory);
+    setView("summary");
+  };
+
   const handleCSV = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -877,6 +886,13 @@ export default function PlanningPoker() {
                 → Next Story
               </button>
             )}
+            <button onClick={endSession} style={{
+              padding: "12px 18px", borderRadius: 10,
+              background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)",
+              color: "#f87171", fontSize: 14, fontWeight: 700,
+            }}>
+              ⏹ End
+            </button>
           </div>
 
           {/* History */}
@@ -902,6 +918,122 @@ export default function PlanningPoker() {
           )}
         </div>
       )}
+
+      {view === "summary" && (() => {
+        const totalStories = history.length;
+        const numericResults = history.map(h => parseFloat(h.result)).filter(v => !isNaN(v));
+        const totalPoints = numericResults.reduce((a, b) => a + b, 0);
+        const avgPoints = numericResults.length ? (totalPoints / numericResults.length).toFixed(1) : null;
+
+        return (
+          <div style={{ padding: "32px 24px", maxWidth: 720, margin: "0 auto", width: "90%", animation: "slideUp 0.4s ease" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+              <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: -1, margin: 0 }}>Session Summary</h1>
+            </div>
+            <p style={{ color: "#475569", fontSize: 14, marginBottom: 28 }}>
+              {totalStories} {totalStories === 1 ? "story" : "stories"} estimated
+              {avgPoints ? ` · avg ${avgPoints} pts` : ""}
+              {numericResults.length ? ` · ${totalPoints} total pts` : ""}
+            </p>
+
+            {/* Stats row */}
+            {numericResults.length > 0 && (
+              <div style={{
+                display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 28,
+              }}>
+                {[
+                  { label: "Stories", value: totalStories },
+                  { label: "Total Pts", value: totalPoints },
+                  { label: "Avg Pts", value: avgPoints },
+                  { label: "Min", value: Math.min(...numericResults) },
+                  { label: "Max", value: Math.max(...numericResults) },
+                ].map(({ label, value }) => (
+                  <div key={label} style={{
+                    flex: "1 1 90px", padding: "12px 16px", borderRadius: 10,
+                    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
+                    textAlign: "center",
+                  }}>
+                    <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: "#e2e8f0", fontFamily: "monospace" }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Story breakdown */}
+            {totalStories === 0 ? (
+              <div style={{
+                padding: "32px", borderRadius: 12, textAlign: "center",
+                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+                color: "#475569", fontSize: 14,
+              }}>
+                No stories were completed in this session.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 28 }}>
+                {history.map((h, i) => {
+                  const voteEntries = Object.entries(h.votes);
+                  return (
+                    <div key={i} style={{
+                      borderRadius: 10, overflow: "hidden",
+                      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)",
+                    }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "10px 14px",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, color: "#475569",
+                            minWidth: 22, textAlign: "right", fontFamily: "monospace",
+                          }}>#{i + 1}</span>
+                          <span style={{ fontSize: 14, color: "#cbd5e1", fontWeight: 500 }}>{h.story}</span>
+                        </div>
+                        <span style={{
+                          fontSize: 20, fontWeight: 800, color: "#10b981",
+                          fontFamily: "monospace", minWidth: 40, textAlign: "right",
+                        }}>{h.result}</span>
+                      </div>
+                      {voteEntries.length > 0 && (
+                        <div style={{
+                          display: "flex", gap: 6, flexWrap: "wrap",
+                          padding: "6px 14px 10px",
+                          borderTop: "1px solid rgba(255,255,255,0.05)",
+                        }}>
+                          {voteEntries.map(([name, val]) => (
+                            <span key={name} style={{
+                              fontSize: 11, padding: "2px 8px", borderRadius: 20,
+                              background: "rgba(255,255,255,0.05)", color: "#64748b",
+                            }}>
+                              {name}: <strong style={{ color: "#94a3b8" }}>{val}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setView("session"); }} style={{
+                padding: "12px 20px", borderRadius: 10,
+                background: "rgba(99,102,241,0.15)", border: "1px solid #6366f1",
+                color: "#a5b4fc", fontSize: 14, fontWeight: 700,
+              }}>← Back to Session</button>
+              <button onClick={() => {
+                setHistory([]);
+                setView("lobby");
+              }} style={{
+                flex: 1, padding: "12px", borderRadius: 10,
+                background: "linear-gradient(135deg, #4f46e5, #7c3aed)",
+                border: "none", color: "#fff", fontSize: 14, fontWeight: 700,
+              }}>🏠 New Session</button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
