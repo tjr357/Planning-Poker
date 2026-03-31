@@ -219,8 +219,12 @@ export default function PlanningPoker() {
   };
 
   const getJiraSectionHeaderStyle = (isOpen) => ({
-    margin: "-10px -12px 0",
+    width: "calc(100% + 24px)",
+    marginTop: -10,
+    marginLeft: -12,
+    marginRight: -12,
     padding: "10px 12px",
+    boxSizing: "border-box",
     borderRadius: isOpen ? "10px 10px 0 0" : "10px",
     borderBottom: isOpen ? "1px solid rgba(148,163,184,0.18)" : "none",
     background: isOpen ? "rgba(96,165,250,0.06)" : "transparent",
@@ -892,15 +896,15 @@ export default function PlanningPoker() {
                   maxWidth: "45%",
                   padding: "6px 10px",
                   borderRadius: 999,
-                  background: "rgba(96,165,250,0.12)",
-                  border: "1px solid rgba(96,165,250,0.28)",
-                  color: "#bfdbfe",
+                  background: isLightMode ? "rgba(59,130,246,0.16)" : "rgba(96,165,250,0.12)",
+                  border: isLightMode ? "1px solid rgba(37,99,235,0.4)" : "1px solid rgba(96,165,250,0.28)",
+                  color: isLightMode ? "#1e3a8a" : "#bfdbfe",
                   fontSize: 11,
                   fontWeight: 700,
                   lineHeight: 1.35,
                   textAlign: "right",
                 }}>
-                  <span style={{ color: "#93c5fd", textTransform: "uppercase", letterSpacing: 0.5 }}>Parent Feature</span>
+                  <span style={{ color: isLightMode ? "#1d4ed8" : "#93c5fd", textTransform: "uppercase", letterSpacing: 0.5 }}>Parent Feature</span>
                   <div style={{ marginTop: 2 }}>
                     {`${jiraIssue.parentFeature.key}${jiraIssue.parentFeature.summary ? `: ${jiraIssue.parentFeature.summary}` : ""}`}
                   </div>
@@ -1015,10 +1019,13 @@ export default function PlanningPoker() {
                               onClick={() => setActiveImageIndex(imageIndex)}
                               style={{
                                 display: "inline-flex",
+                                width: 86,
+                                height: 64,
                                 background: "none",
                                 border: "none",
                                 padding: 0,
                                 borderRadius: 6,
+                                overflow: "hidden",
                               }}
                               title="Open gallery"
                             >
@@ -1026,8 +1033,8 @@ export default function PlanningPoker() {
                                 src={attachmentSrc}
                                 alt={img.filename || "Jira attachment"}
                                 style={{
-                                  width: 86,
-                                  height: 64,
+                                  width: "100%",
+                                  height: "100%",
                                   objectFit: "cover",
                                   borderRadius: 6,
                                   border: "1px solid rgba(148,163,184,0.25)",
@@ -1106,15 +1113,15 @@ export default function PlanningPoker() {
                   <div style={{ fontSize: 28, fontWeight: 800, color: "#34d399", fontFamily: "monospace" }}>{max}</div>
                 </div>}
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ fontSize: 10, color: "#6ee7b7", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Estimate</div>
+                  <div style={{ fontSize: 10, color: isLightMode ? "#065f46" : "#6ee7b7", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Estimate</div>
                   <input
                     value={finalEstimate}
                     onChange={e => setFinalEstimate(e.target.value)}
                     placeholder="—"
                     style={{
                       width: 80, padding: "4px 8px",
-                      background: "rgba(255,255,255,0.08)", border: "1px solid rgba(16,185,129,0.4)",
-                      borderRadius: 6, color: "#fff", fontSize: 22, fontWeight: 800,
+                      background: isLightMode ? "rgba(236,253,245,0.95)" : "rgba(255,255,255,0.08)", border: isLightMode ? "1px solid rgba(5,150,105,0.55)" : "1px solid rgba(16,185,129,0.4)",
+                      borderRadius: 6, color: isLightMode ? "#064e3b" : "#fff", fontSize: 22, fontWeight: 800,
                       fontFamily: "monospace", textAlign: "center",
                     }}
                   />
@@ -1243,15 +1250,17 @@ export default function PlanningPoker() {
                   borderRadius: 12,
                   background: theme.panelAltBg,
                   border: `1px solid ${theme.panelBorder}`,
-                  display: "flex",
-                  flexDirection: "column",
+                  display: "grid",
+                  gridTemplateRows: "auto minmax(0, 1fr) auto",
                   overflow: "hidden",
                 }}
               >
                 <div style={{
-                  display: "flex", alignItems: "center", gap: 8,
+                  display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                   padding: "10px 12px",
                   borderBottom: `1px solid ${theme.panelBorder}`,
+                  position: "relative",
+                  zIndex: 2,
                 }}>
                   <span style={{ fontSize: 12, color: theme.mutedText, fontWeight: 700 }}>
                     Image {activeImageIndex + 1} of {jiraIssue.images.length}
@@ -1298,15 +1307,17 @@ export default function PlanningPoker() {
                   alignItems: "center",
                   justifyContent: "center",
                   minHeight: 320,
-                  maxHeight: "70vh",
+                  height: "100%",
+                  minWidth: 0,
+                  overflow: "hidden",
                   padding: 12,
                 }}>
                   <img
                     src={getJiraAttachmentSrc(jiraIssue.key, jiraIssue.images[activeImageIndex].id)}
                     alt={jiraIssue.images[activeImageIndex].filename || "Jira attachment"}
                     style={{
-                      maxWidth: "100%",
-                      maxHeight: "100%",
+                      width: "100%",
+                      height: "100%",
                       objectFit: "contain",
                       borderRadius: 8,
                     }}
@@ -1322,6 +1333,7 @@ export default function PlanningPoker() {
                           background: isLightMode ? "rgba(255,255,255,0.94)" : "rgba(2,8,23,0.72)",
                           border: `1px solid ${theme.inputBorder}`,
                           color: theme.text, fontSize: 18, fontWeight: 700,
+                          zIndex: 1,
                         }}
                       >
                         ‹
@@ -1334,6 +1346,7 @@ export default function PlanningPoker() {
                           background: isLightMode ? "rgba(255,255,255,0.94)" : "rgba(2,8,23,0.72)",
                           border: `1px solid ${theme.inputBorder}`,
                           color: theme.text, fontSize: 18, fontWeight: 700,
+                          zIndex: 1,
                         }}
                       >
                         ›
@@ -1357,17 +1370,20 @@ export default function PlanningPoker() {
                         onClick={() => setActiveImageIndex(idx)}
                         style={{
                           padding: 0,
+                          width: 72,
+                          height: 52,
                           borderRadius: 6,
                           background: "none",
                           border: idx === activeImageIndex ? "2px solid #60a5fa" : "1px solid rgba(148,163,184,0.3)",
                           opacity: idx === activeImageIndex ? 1 : 0.75,
                           flexShrink: 0,
+                          overflow: "hidden",
                         }}
                       >
                         <img
                           src={getJiraAttachmentSrc(jiraIssue.key, img.id)}
                           alt={img.filename || "Jira attachment"}
-                          style={{ width: 72, height: 52, objectFit: "cover", borderRadius: 5, display: "block" }}
+                          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 5, display: "block" }}
                         />
                       </button>
                     ))}
@@ -1384,13 +1400,32 @@ export default function PlanningPoker() {
         const numericResults = history.map(h => parseFloat(h.result)).filter(v => !isNaN(v));
         const totalPoints = numericResults.reduce((a, b) => a + b, 0);
         const avgPoints = numericResults.length ? (totalPoints / numericResults.length).toFixed(1) : null;
+        const summaryColors = isLightMode
+          ? {
+              meta: "#334155",
+              statLabel: "#334155",
+              statValue: "#0f172a",
+              rank: "#334155",
+              story: "#1e293b",
+              chip: "#334155",
+              chipStrong: "#0f172a",
+            }
+          : {
+              meta: "#475569",
+              statLabel: "#475569",
+              statValue: "#e2e8f0",
+              rank: "#475569",
+              story: "#cbd5e1",
+              chip: "#64748b",
+              chipStrong: "#94a3b8",
+            };
 
         return (
           <div style={{ padding: "32px 24px", maxWidth: 720, margin: "0 auto", width: "90%", animation: "slideUp 0.4s ease" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
               <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: -1, margin: 0 }}>Session Summary</h1>
             </div>
-            <p style={{ color: "#475569", fontSize: 14, marginBottom: 28 }}>
+            <p style={{ color: summaryColors.meta, fontSize: 14, marginBottom: 28 }}>
               {totalStories} {totalStories === 1 ? "story" : "stories"} estimated
               {avgPoints ? ` · avg ${avgPoints} pts` : ""}
               {numericResults.length ? ` · ${totalPoints} total pts` : ""}
@@ -1413,8 +1448,8 @@ export default function PlanningPoker() {
                     background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
                     textAlign: "center",
                   }}>
-                    <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</div>
-                    <div style={{ fontSize: 26, fontWeight: 800, color: "#e2e8f0", fontFamily: "monospace" }}>{value}</div>
+                    <div style={{ fontSize: 10, color: summaryColors.statLabel, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: summaryColors.statValue, fontFamily: "monospace" }}>{value}</div>
                   </div>
                 ))}
               </div>
@@ -1425,7 +1460,7 @@ export default function PlanningPoker() {
               <div style={{
                 padding: "32px", borderRadius: 12, textAlign: "center",
                 background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-                color: "#475569", fontSize: 14,
+                color: summaryColors.meta, fontSize: 14,
               }}>
                 No stories were completed in this session.
               </div>
@@ -1444,10 +1479,10 @@ export default function PlanningPoker() {
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{
-                            fontSize: 11, fontWeight: 700, color: "#475569",
+                            fontSize: 11, fontWeight: 700, color: summaryColors.rank,
                             minWidth: 22, textAlign: "right", fontFamily: "monospace",
                           }}>#{i + 1}</span>
-                          <span style={{ fontSize: 14, color: "#cbd5e1", fontWeight: 500 }}>{h.story}</span>
+                          <span style={{ fontSize: 14, color: summaryColors.story, fontWeight: 500 }}>{h.story}</span>
                         </div>
                         <span style={{
                           fontSize: 20, fontWeight: 800, color: "#10b981",
@@ -1463,9 +1498,9 @@ export default function PlanningPoker() {
                           {voteEntries.map(([name, val]) => (
                             <span key={name} style={{
                               fontSize: 11, padding: "2px 8px", borderRadius: 20,
-                              background: "rgba(255,255,255,0.05)", color: "#64748b",
+                              background: "rgba(255,255,255,0.05)", color: summaryColors.chip,
                             }}>
-                              {name}: <strong style={{ color: "#94a3b8" }}>{val}</strong>
+                              {name}: <strong style={{ color: summaryColors.chipStrong }}>{val}</strong>
                             </span>
                           ))}
                         </div>
