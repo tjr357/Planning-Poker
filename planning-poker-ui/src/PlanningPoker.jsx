@@ -16,6 +16,7 @@ const DEFAULT_JIRA_SECTION_STATE = {
   linkedIssues: true,
   notes: true,
   images: true,
+  figma: true,
 };
 
 function extractIssueKey(text) {
@@ -201,6 +202,9 @@ export default function PlanningPoker() {
   const [jiraFilterInfo, setJiraFilterInfo] = useState("");
   const [activeImageIndex, setActiveImageIndex] = useState(null);
   const [jiraSectionsOpen, setJiraSectionsOpen] = useState(DEFAULT_JIRA_SECTION_STATE);
+  const [figmaAuth, setFigmaAuth] = useState({ configured: false, authenticated: false });
+  const [figmaAuthLoading, setFigmaAuthLoading] = useState(false);
+  const [figmaAuthError, setFigmaAuthError] = useState("");
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
 
@@ -210,12 +214,84 @@ export default function PlanningPoker() {
     return `${API_BASE_URL}/api/jira/${encodeURIComponent(issueKey)}/attachment/${encodeURIComponent(attachmentId)}`;
   }, []);
 
+  const loadFigmaAuthStatus = useCallback(async () => {
+    setFigmaAuthLoading(true);
+    setFigmaAuthError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/figma/auth/status`, {
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to check Figma status");
+      }
+      setFigmaAuth({
+        configured: Boolean(payload.configured),
+        authenticated: Boolean(payload.authenticated),
+      });
+    } catch (error) {
+      setFigmaAuthError(error.message || "Unable to check Figma status");
+    } finally {
+      setFigmaAuthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     setJiraSectionsOpen(DEFAULT_JIRA_SECTION_STATE);
   }, [jiraIssue?.key]);
 
+  useEffect(() => {
+    const onMessage = (event) => {
+      if (event.data?.type === "figma-auth-complete") {
+        loadFigmaAuthStatus();
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [loadFigmaAuthStatus]);
+
+  useEffect(() => {
+    if (!jiraIssue || !jiraSectionsOpen.figma) return;
+    if (!Array.isArray(jiraIssue.figmaEmbeds) || jiraIssue.figmaEmbeds.length === 0) return;
+    loadFigmaAuthStatus();
+  }, [jiraIssue, jiraSectionsOpen.figma, loadFigmaAuthStatus]);
+
   const toggleJiraSection = (sectionKey) => {
     setJiraSectionsOpen((current) => ({ ...current, [sectionKey]: !current[sectionKey] }));
+  };
+
+  const startFigmaLogin = () => {
+    setFigmaAuthError("");
+    const width = 560;
+    const height = 720;
+    const left = Math.max(0, (window.screen.width - width) / 2);
+    const top = Math.max(0, (window.screen.height - height) / 2);
+    const loginUrl = `${API_BASE_URL}/api/figma/auth/start?returnOrigin=${encodeURIComponent(window.location.origin)}`;
+    window.open(
+      loginUrl,
+      "figma-oauth",
+      `popup=yes,width=${Math.round(width)},height=${Math.round(height)},left=${Math.round(left)},top=${Math.round(top)}`,
+    );
+  };
+
+  const logoutFigma = async () => {
+    setFigmaAuthLoading(true);
+    setFigmaAuthError("");
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/figma/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Unable to disconnect Figma");
+      }
+      setFigmaAuth((current) => ({ ...current, authenticated: false }));
+    } catch (error) {
+      setFigmaAuthError(error.message || "Unable to disconnect Figma");
+    } finally {
+      setFigmaAuthLoading(false);
+    }
   };
 
   const getJiraSectionHeaderStyle = (isOpen) => ({
@@ -1040,6 +1116,100 @@ export default function PlanningPoker() {
                       ) : (
                         <div className="jira-field-value" style={{ marginTop: 8 }}>(none)</div>
                       ))}
+                    </div>
+
+                    <div className="jira-field-card">
+                      <button className="jira-field-toggle" onClick={() => toggleJiraSection("figma")} style={getJiraSectionHeaderStyle(jiraSectionsOpen.figma)}>
+                        <div className="jira-field-label" style={{ marginBottom: 0 }}>Figma</div>
+                        <span style={getJiraChevronStyle(jiraSectionsOpen.figma)}>{jiraSectionsOpen.figma ? "▾" : "▸"}</span>
+                      </button>
+                      {jiraSectionsOpen.figma && (
+                        <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
+                          {figmaAuthError && (
+                            <div style={{ fontSize: 12, color: "#fca5a5" }}>{figmaAuthError}</div>
+                          )}
+
+                          {!Array.isArray(jiraIssue.figmaEmbeds) || jiraIssue.figmaEmbeds.length === 0 ? (
+                            <div className="jira-field-value">(no Figma links found)</div>
+                          ) : !figmaAuth.configured ? (
+                            <div className="jira-field-value">Figma login is not configured on this server yet.</div>
+                          ) : !figmaAuth.authenticated ? (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                              <div className="jira-field-value" style={{ marginRight: 8 }}>
+                                Connect your Figma account to view embedded designs.
+                              </div>
+                              <button
+                                onClick={startFigmaLogin}
+                                disabled={figmaAuthLoading}
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid rgba(99,102,241,0.4)",
+                                  background: "rgba(99,102,241,0.14)",
+                                  color: theme.text,
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {figmaAuthLoading ? "Checking..." : "Login with Figma"}
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                <div className="jira-field-value">Connected to Figma</div>
+                                <button
+                                  onClick={logoutFigma}
+                                  disabled={figmaAuthLoading}
+                                  style={{
+                                    padding: "6px 10px",
+                                    borderRadius: 8,
+                                    border: "1px solid rgba(239,68,68,0.35)",
+                                    background: "rgba(239,68,68,0.12)",
+                                    color: "#dc2626",
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  Disconnect
+                                </button>
+                              </div>
+                              {jiraIssue.figmaEmbeds.slice(0, 3).map((embed, index) => (
+                                <div
+                                  key={`${embed.sourceUrl}-${index}`}
+                                  style={{
+                                    borderRadius: 10,
+                                    border: `1px solid ${theme.jiraCardBorder}`,
+                                    overflow: "hidden",
+                                    background: theme.panelBg,
+                                  }}
+                                >
+                                  <div style={{ padding: "8px 10px", borderBottom: `1px solid ${theme.panelBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                    <span className="jira-field-value" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      Figma Design {index + 1}
+                                    </span>
+                                    <a
+                                      href={embed.sourceUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      style={{ fontSize: 11, fontWeight: 700, color: theme.badgeText }}
+                                    >
+                                      Open
+                                    </a>
+                                  </div>
+                                  <iframe
+                                    title={`Figma Embed ${index + 1}`}
+                                    src={embed.embedUrl}
+                                    style={{ width: "100%", height: 300, border: 0, display: "block", background: isLightMode ? "#f8fafc" : "#0f172a" }}
+                                    loading="lazy"
+                                    allowFullScreen
+                                  />
+                                </div>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
