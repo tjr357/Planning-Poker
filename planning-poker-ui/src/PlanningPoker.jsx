@@ -1015,10 +1015,13 @@ export default function PlanningPoker() {
                               onClick={() => setActiveImageIndex(imageIndex)}
                               style={{
                                 display: "inline-flex",
+                                width: 86,
+                                height: 64,
                                 background: "none",
                                 border: "none",
                                 padding: 0,
                                 borderRadius: 6,
+                                overflow: "hidden",
                               }}
                               title="Open gallery"
                             >
@@ -1026,8 +1029,8 @@ export default function PlanningPoker() {
                                 src={attachmentSrc}
                                 alt={img.filename || "Jira attachment"}
                                 style={{
-                                  width: 86,
-                                  height: 64,
+                                  width: "100%",
+                                  height: "100%",
                                   objectFit: "cover",
                                   borderRadius: 6,
                                   border: "1px solid rgba(148,163,184,0.25)",
@@ -1243,15 +1246,17 @@ export default function PlanningPoker() {
                   borderRadius: 12,
                   background: theme.panelAltBg,
                   border: `1px solid ${theme.panelBorder}`,
-                  display: "flex",
-                  flexDirection: "column",
+                  display: "grid",
+                  gridTemplateRows: "auto minmax(0, 1fr) auto",
                   overflow: "hidden",
                 }}
               >
                 <div style={{
-                  display: "flex", alignItems: "center", gap: 8,
+                  display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
                   padding: "10px 12px",
                   borderBottom: `1px solid ${theme.panelBorder}`,
+                  position: "relative",
+                  zIndex: 2,
                 }}>
                   <span style={{ fontSize: 12, color: theme.mutedText, fontWeight: 700 }}>
                     Image {activeImageIndex + 1} of {jiraIssue.images.length}
@@ -1298,15 +1303,17 @@ export default function PlanningPoker() {
                   alignItems: "center",
                   justifyContent: "center",
                   minHeight: 320,
-                  maxHeight: "70vh",
+                  height: "100%",
+                  minWidth: 0,
+                  overflow: "hidden",
                   padding: 12,
                 }}>
                   <img
                     src={getJiraAttachmentSrc(jiraIssue.key, jiraIssue.images[activeImageIndex].id)}
                     alt={jiraIssue.images[activeImageIndex].filename || "Jira attachment"}
                     style={{
-                      maxWidth: "100%",
-                      maxHeight: "100%",
+                      width: "100%",
+                      height: "100%",
                       objectFit: "contain",
                       borderRadius: 8,
                     }}
@@ -1322,6 +1329,7 @@ export default function PlanningPoker() {
                           background: isLightMode ? "rgba(255,255,255,0.94)" : "rgba(2,8,23,0.72)",
                           border: `1px solid ${theme.inputBorder}`,
                           color: theme.text, fontSize: 18, fontWeight: 700,
+                          zIndex: 1,
                         }}
                       >
                         ‹
@@ -1334,6 +1342,7 @@ export default function PlanningPoker() {
                           background: isLightMode ? "rgba(255,255,255,0.94)" : "rgba(2,8,23,0.72)",
                           border: `1px solid ${theme.inputBorder}`,
                           color: theme.text, fontSize: 18, fontWeight: 700,
+                          zIndex: 1,
                         }}
                       >
                         ›
@@ -1357,17 +1366,20 @@ export default function PlanningPoker() {
                         onClick={() => setActiveImageIndex(idx)}
                         style={{
                           padding: 0,
+                          width: 72,
+                          height: 52,
                           borderRadius: 6,
                           background: "none",
                           border: idx === activeImageIndex ? "2px solid #60a5fa" : "1px solid rgba(148,163,184,0.3)",
                           opacity: idx === activeImageIndex ? 1 : 0.75,
                           flexShrink: 0,
+                          overflow: "hidden",
                         }}
                       >
                         <img
                           src={getJiraAttachmentSrc(jiraIssue.key, img.id)}
                           alt={img.filename || "Jira attachment"}
-                          style={{ width: 72, height: 52, objectFit: "cover", borderRadius: 5, display: "block" }}
+                          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 5, display: "block" }}
                         />
                       </button>
                     ))}
