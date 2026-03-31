@@ -25,7 +25,11 @@ Additionally I wanted this to be as simple as possible for my developers without
 - Teams bot (still need access to create one)
 - Fix UI width
 - Edit participants
-- End session
+
+### New: Figma in Jira Details
+- If Jira issue fields contain Figma links, up to 3 embeds are shown in the Jira details panel.
+- Users can connect their own Figma account via in-app OAuth before viewing embeds.
+- Auth tokens are stored server-side in `.figma-auth-store.json` (encrypted with `FIGMA_TOKEN_ENCRYPTION_KEY`).
 
 # Planning Poker for Microsoft Teams
 
@@ -74,6 +78,15 @@ JIRA_BEARER_TOKEN=your_token
 # JIRA_EMAIL=you@company.com
 # JIRA_API_TOKEN=your_api_token
 # JIRA_ACCEPTANCE_CRITERIA_FIELD=customfield_10039
+
+# Optional Figma OAuth (required for in-app Figma embeds)
+# Create an OAuth app in Figma and set callback to:
+#   http://localhost:3978/api/figma/auth/callback
+FIGMA_CLIENT_ID=your_figma_client_id
+FIGMA_CLIENT_SECRET=your_figma_client_secret
+FIGMA_REDIRECT_URI=http://localhost:3978/api/figma/auth/callback
+FIGMA_SCOPE=file_content:read
+FIGMA_TOKEN_ENCRYPTION_KEY=use_a_long_random_secret_here
 ```
 
 Start the bot server:
