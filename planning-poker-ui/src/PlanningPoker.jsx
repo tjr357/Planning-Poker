@@ -181,7 +181,8 @@ export default function PlanningPoker() {
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
   const [finalEstimate, setFinalEstimate] = useState("");
-  const [participants] = useState(DEMO_USERS);
+  const [participants, setParticipants] = useState(DEMO_USERS);
+  const [participantInput, setParticipantInput] = useState("");
   const [history, setHistory] = useState([]);
   const [jiraIssue, setJiraIssue] = useState(null);
   const [jiraLoading, setJiraLoading] = useState(false);
@@ -233,18 +234,18 @@ export default function PlanningPoker() {
     setStoryIndex(0);
     setView("session");
     // Simulate other users voting after a delay
-    simulateVotes();
+    simulateVotes(participants);
   };
 
-  const simulateVotes = useCallback(() => {
-    const others = DEMO_USERS.slice(1);
+  const simulateVotes = useCallback((currentParticipants) => {
+    const others = (currentParticipants || participants).slice(1);
     const cards = activeCards.filter(c => c !== "?" && c !== "☕");
     others.forEach((user, i) => {
       setTimeout(() => {
         setVotes(v => ({ ...v, [user]: cards[Math.floor(Math.random() * cards.length)] }));
       }, 1200 + i * 800);
     });
-  }, [activeCards]);
+  }, [activeCards, participants]);
 
   const castVote = (val) => {
     setMyVote(val);
@@ -310,8 +311,7 @@ export default function PlanningPoker() {
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
-    setFinalEstimate("");
-    simulateVotes();
+    simulateVotes(participants);
   };
 
   const previousStory = () => {
@@ -333,6 +333,15 @@ export default function PlanningPoker() {
     setRevealed(false);
     setFinalEstimate("");
     simulateVotes();
+  };
+
+  const endSession = () => {
+    // Save current story if it has been revealed and voted on
+    const updatedHistory = revealed && myVote
+      ? [...history, { story: currentStory, votes: { ...votes }, result: getConsensus() }]
+      : history;
+    setHistory(updatedHistory);
+    setView("summary");
   };
 
   const handleCSV = (e) => {
@@ -512,7 +521,22 @@ export default function PlanningPoker() {
                   Current Deck Preview
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {activeCards.map((c, i) => <PokerCard key={i} value={c} small />)}
+                  {activeCards.map((c, i) => (
+                    <div key={i} style={{ position: "relative", display: "inline-flex" }}>
+                      <PokerCard value={c} small />
+                      <button
+                        onClick={() => setActiveCards(cards => cards.filter((_, j) => j !== i))}
+                        style={{
+                          position: "absolute", top: -6, right: -6,
+                          width: 16, height: 16, borderRadius: "50%",
+                          background: "#475569", border: "1px solid #1e293b",
+                          color: "#e2e8f0", fontSize: 10, lineHeight: 1,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          padding: 0, cursor: "pointer",
+                        }}
+                      >X</button>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -639,9 +663,6 @@ export default function PlanningPoker() {
 
           {tab === "participants" && (
             <div style={{ animation: "slideUp 0.2s ease" }}>
-              <div style={{ fontSize: 12, color: "#475569", marginBottom: 12 }}>
-                In Teams, participants join automatically when they open the tab in the channel.
-              </div>
               {participants.map((p, i) => (
                 <div key={i} style={{
                   display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
@@ -652,11 +673,45 @@ export default function PlanningPoker() {
                     width: 28, height: 28, borderRadius: "50%",
                     background: `hsl(${i * 60}, 60%, 35%)`, display: "flex",
                     alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700,
+                    flexShrink: 0,
                   }}>{p[0]}</div>
-                  <span style={{ fontSize: 13, color: "#94a3b8" }}>{p}</span>
-                  {i === 0 && <span style={{ marginLeft: "auto", fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>}
+                  <span style={{ fontSize: 13, color: "#94a3b8", flex: 1 }}>{p}</span>
+                  {i === 0
+                    ? <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>
+                    : <button onClick={() => setParticipants(ps => ps.filter((_, j) => j !== i))} style={{
+                        background: "none", border: "none", color: "#475569", fontSize: 18,
+                        lineHeight: 1, padding: "0 2px",
+                      }}>×</button>
+                  }
                 </div>
               ))}
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                <input
+                  placeholder="Add participant name..."
+                  value={participantInput}
+                  onChange={e => setParticipantInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && participantInput.trim() && !participants.includes(participantInput.trim())) {
+                      setParticipants(ps => [...ps, participantInput.trim()]);
+                      setParticipantInput("");
+                    }
+                  }}
+                  style={{
+                    flex: 1, padding: "8px 12px",
+                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 8, color: "#e2e8f0", fontSize: 13,
+                  }}
+                />
+                <button onClick={() => {
+                  if (participantInput.trim() && !participants.includes(participantInput.trim())) {
+                    setParticipants(ps => [...ps, participantInput.trim()]);
+                    setParticipantInput("");
+                  }
+                }} style={{
+                  padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                  background: "rgba(99,102,241,0.2)", border: "1px solid #6366f1", color: "#a5b4fc",
+                }}>+ Add</button>
+              </div>
             </div>
           )}
 
@@ -908,6 +963,13 @@ export default function PlanningPoker() {
                 → Next Story
               </button>
             )}
+            <button onClick={endSession} style={{
+              padding: "12px 18px", borderRadius: 10,
+              background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.3)",
+              color: "#f87171", fontSize: 14, fontWeight: 700,
+            }}>
+              ⏹ End
+            </button>
           </div>
 
           {/* History */}
@@ -949,6 +1011,122 @@ export default function PlanningPoker() {
           )}
         </div>
       )}
+
+      {view === "summary" && (() => {
+        const totalStories = history.length;
+        const numericResults = history.map(h => parseFloat(h.result)).filter(v => !isNaN(v));
+        const totalPoints = numericResults.reduce((a, b) => a + b, 0);
+        const avgPoints = numericResults.length ? (totalPoints / numericResults.length).toFixed(1) : null;
+
+        return (
+          <div style={{ padding: "32px 24px", maxWidth: 720, margin: "0 auto", width: "90%", animation: "slideUp 0.4s ease" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+              <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: -1, margin: 0 }}>Session Summary</h1>
+            </div>
+            <p style={{ color: "#475569", fontSize: 14, marginBottom: 28 }}>
+              {totalStories} {totalStories === 1 ? "story" : "stories"} estimated
+              {avgPoints ? ` · avg ${avgPoints} pts` : ""}
+              {numericResults.length ? ` · ${totalPoints} total pts` : ""}
+            </p>
+
+            {/* Stats row */}
+            {numericResults.length > 0 && (
+              <div style={{
+                display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 28,
+              }}>
+                {[
+                  { label: "Stories", value: totalStories },
+                  { label: "Total Pts", value: totalPoints },
+                  { label: "Avg Pts", value: avgPoints },
+                  { label: "Min", value: Math.min(...numericResults) },
+                  { label: "Max", value: Math.max(...numericResults) },
+                ].map(({ label, value }) => (
+                  <div key={label} style={{
+                    flex: "1 1 90px", padding: "12px 16px", borderRadius: 10,
+                    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)",
+                    textAlign: "center",
+                  }}>
+                    <div style={{ fontSize: 10, color: "#475569", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: "#e2e8f0", fontFamily: "monospace" }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Story breakdown */}
+            {totalStories === 0 ? (
+              <div style={{
+                padding: "32px", borderRadius: 12, textAlign: "center",
+                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+                color: "#475569", fontSize: 14,
+              }}>
+                No stories were completed in this session.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 28 }}>
+                {history.map((h, i) => {
+                  const voteEntries = Object.entries(h.votes);
+                  return (
+                    <div key={i} style={{
+                      borderRadius: 10, overflow: "hidden",
+                      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.07)",
+                    }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "10px 14px",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, color: "#475569",
+                            minWidth: 22, textAlign: "right", fontFamily: "monospace",
+                          }}>#{i + 1}</span>
+                          <span style={{ fontSize: 14, color: "#cbd5e1", fontWeight: 500 }}>{h.story}</span>
+                        </div>
+                        <span style={{
+                          fontSize: 20, fontWeight: 800, color: "#10b981",
+                          fontFamily: "monospace", minWidth: 40, textAlign: "right",
+                        }}>{h.result}</span>
+                      </div>
+                      {voteEntries.length > 0 && (
+                        <div style={{
+                          display: "flex", gap: 6, flexWrap: "wrap",
+                          padding: "6px 14px 10px",
+                          borderTop: "1px solid rgba(255,255,255,0.05)",
+                        }}>
+                          {voteEntries.map(([name, val]) => (
+                            <span key={name} style={{
+                              fontSize: 11, padding: "2px 8px", borderRadius: 20,
+                              background: "rgba(255,255,255,0.05)", color: "#64748b",
+                            }}>
+                              {name}: <strong style={{ color: "#94a3b8" }}>{val}</strong>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => { setView("session"); }} style={{
+                padding: "12px 20px", borderRadius: 10,
+                background: "rgba(99,102,241,0.15)", border: "1px solid #6366f1",
+                color: "#a5b4fc", fontSize: 14, fontWeight: 700,
+              }}>← Back to Session</button>
+              <button onClick={() => {
+                setHistory([]);
+                setView("lobby");
+              }} style={{
+                flex: 1, padding: "12px", borderRadius: 10,
+                background: "linear-gradient(135deg, #4f46e5, #7c3aed)",
+                border: "none", color: "#fff", fontSize: 14, fontWeight: 700,
+              }}>🏠 New Session</button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
