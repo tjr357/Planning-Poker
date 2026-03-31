@@ -458,7 +458,22 @@ export default function PlanningPoker() {
                   Current Deck Preview
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                  {activeCards.map((c, i) => <PokerCard key={i} value={c} small />)}
+                  {activeCards.map((c, i) => (
+                    <div key={i} style={{ position: "relative", display: "inline-flex" }}>
+                      <PokerCard value={c} small />
+                      <button
+                        onClick={() => setActiveCards(cards => cards.filter((_, j) => j !== i))}
+                        style={{
+                          position: "absolute", top: -6, right: -6,
+                          width: 16, height: 16, borderRadius: "50%",
+                          background: "#475569", border: "1px solid #1e293b",
+                          color: "#e2e8f0", fontSize: 10, lineHeight: 1,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          padding: 0, cursor: "pointer",
+                        }}
+                      >X</button>
+                    </div>
+                  ))}
                 </div>
               </div>
 
