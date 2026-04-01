@@ -100,7 +100,18 @@ Optional frontend env (`planning-poker-ui/.env`):
 
 ```env
 VITE_API_BASE_URL=http://localhost:3978
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
+
+Supabase setup (free tier):
+
+1. Create a new project at Supabase.
+2. In Project Settings -> API, copy:
+  - Project URL -> `VITE_SUPABASE_URL`
+  - `anon` public key -> `VITE_SUPABASE_ANON_KEY`
+3. In Project Settings -> API -> Realtime, ensure Realtime is enabled.
+4. Restart `npm run dev` after adding `.env` values.
 
 Build for production:
 
@@ -129,7 +140,8 @@ npm run deploy
 
 Notes:
 - The current hosted UI is great for immediate UX testing.
-- Real-time shared voting between multiple browser users is not implemented yet in the web UI (current session state is local to each browser).
+- Real-time shared voting is available in the hosted UI when Supabase env vars are configured.
+- To use realtime on GitHub Pages, add repository secrets `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` so the build can inject them.
 - Teams bot integration can be added later when bot registration access is available.
 
 ## Local Bot Testing (No Teams Required)

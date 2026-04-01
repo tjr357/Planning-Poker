@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
+import { createClient } from "@supabase/supabase-js";
 
 const PRESET_DECKS = {
   fibonacci: { label: "Fibonacci", cards: ["1", "3", "5", "8", "13", "?", "☕"] },
@@ -10,6 +11,8 @@ const PRESET_DECKS = {
 
 const DEMO_USERS = ["Alex", "Jordan", "Sam", "Riley", "Morgan"];
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3978";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const DEFAULT_JIRA_SECTION_STATE = {
   description: true,
   acceptanceCriteria: true,
@@ -17,6 +20,15 @@ const DEFAULT_JIRA_SECTION_STATE = {
   notes: true,
   images: true,
 };
+
+function normalizeRoomCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+}
+
+function generateRoomCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+}
 
 function extractIssueKey(text) {
   const match = String(text || "").toUpperCase().match(/([A-Z][A-Z0-9]+-\d+)/);
@@ -173,6 +185,12 @@ VoteSlot.propTypes = {
 };
 
 export default function PlanningPoker() {
+  const myClientId = useMemo(() => `u-${Math.random().toString(36).slice(2, 10)}`, []);
+  const [displayName, setDisplayName] = useState(() => localStorage.getItem("pp_display_name") || "");
+  const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [roomCode, setRoomCode] = useState("");
+  const [roomError, setRoomError] = useState("");
+  const [roomConnected, setRoomConnected] = useState(false);
   const [view, setView] = useState("lobby"); // lobby | session | results
   const [deck, setDeck] = useState("fibonacci");
   const [customCards, setCustomCards] = useState("");
@@ -203,8 +221,212 @@ export default function PlanningPoker() {
   const [jiraSectionsOpen, setJiraSectionsOpen] = useState(DEFAULT_JIRA_SECTION_STATE);
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
+  const channelRef = useRef(null);
+  const applyingRemoteRef = useRef(false);
+
+  const supabase = useMemo(() => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return null;
+    }
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }, []);
 
   const allStories = [...csvStories, ...stories];
+
+  useEffect(() => {
+    if (displayName.trim()) {
+      localStorage.setItem("pp_display_name", displayName.trim());
+    }
+  }, [displayName]);
+
+  useEffect(() => {
+    setMyVote(votes[displayName] || null);
+  }, [votes, displayName]);
+
+  const getSharedStateSnapshot = useCallback(() => ({
+    view,
+    deck,
+    customCards,
+    activeCards,
+    currentStory,
+    storyInput,
+    stories,
+    csvStories,
+    storyIndex,
+    votes,
+    originalVotes,
+    revealed,
+    finalEstimate,
+    history,
+  }), [
+    view,
+    deck,
+    customCards,
+    activeCards,
+    currentStory,
+    storyInput,
+    stories,
+    csvStories,
+    storyIndex,
+    votes,
+    originalVotes,
+    revealed,
+    finalEstimate,
+    history,
+  ]);
+
+  const applySharedStateSnapshot = useCallback((state) => {
+    if (!state || typeof state !== "object") return;
+    applyingRemoteRef.current = true;
+    setView(state.view || "lobby");
+    setDeck(state.deck || "fibonacci");
+    setCustomCards(state.customCards || "");
+    setActiveCards(Array.isArray(state.activeCards) && state.activeCards.length
+      ? state.activeCards
+      : PRESET_DECKS.fibonacci.cards);
+    setCurrentStory(state.currentStory || "");
+    setStoryInput(state.storyInput || "");
+    setStories(Array.isArray(state.stories) ? state.stories : []);
+    setCsvStories(Array.isArray(state.csvStories) ? state.csvStories : []);
+    setStoryIndex(Number.isInteger(state.storyIndex) ? state.storyIndex : 0);
+    setVotes(state.votes && typeof state.votes === "object" ? state.votes : {});
+    setOriginalVotes(state.originalVotes && typeof state.originalVotes === "object" ? state.originalVotes : {});
+    setRevealed(Boolean(state.revealed));
+    setFinalEstimate(state.finalEstimate || "");
+    setHistory(Array.isArray(state.history) ? state.history : []);
+    setTimeout(() => {
+      applyingRemoteRef.current = false;
+    }, 0);
+  }, []);
+
+  const broadcastSharedState = useCallback(async () => {
+    const channel = channelRef.current;
+    if (!channel || !roomConnected || applyingRemoteRef.current) return;
+    await channel.send({
+      type: "broadcast",
+      event: "state-sync",
+      payload: {
+        senderId: myClientId,
+        state: getSharedStateSnapshot(),
+      },
+    });
+  }, [getSharedStateSnapshot, myClientId, roomConnected]);
+
+  const disconnectRoom = useCallback(async () => {
+    const channel = channelRef.current;
+    if (channel && supabase) {
+      await supabase.removeChannel(channel);
+    }
+    channelRef.current = null;
+    setRoomConnected(false);
+    setRoomCode("");
+  }, [supabase]);
+
+  const connectRoom = useCallback(async (inputCode) => {
+    if (!supabase) {
+      setRoomError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
+
+    const name = displayName.trim();
+    if (!name) {
+      setRoomError("Enter your display name before joining a room.");
+      return;
+    }
+
+    const normalizedCode = normalizeRoomCode(inputCode);
+    if (!normalizedCode) {
+      setRoomError("Enter a valid room code.");
+      return;
+    }
+
+    setRoomError("");
+    await disconnectRoom();
+
+    const channel = supabase.channel(`planning-poker:${normalizedCode}`, {
+      config: {
+        broadcast: { self: false },
+        presence: { key: myClientId },
+      },
+    });
+
+    channel
+      .on("broadcast", { event: "state-sync" }, ({ payload }) => {
+        if (!payload || payload.senderId === myClientId) return;
+        applySharedStateSnapshot(payload.state);
+      })
+      .on("broadcast", { event: "state-request" }, ({ payload }) => {
+        if (!payload || payload.senderId === myClientId) return;
+        broadcastSharedState();
+      })
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        const names = Object.values(state)
+          .flat()
+          .map((entry) => entry.name)
+          .filter(Boolean);
+        const uniqueNames = Array.from(new Set(names));
+        setParticipants(uniqueNames.length ? uniqueNames : [name]);
+      });
+
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        channelRef.current = channel;
+        setRoomConnected(true);
+        setRoomCode(normalizedCode);
+        await channel.track({ name });
+        await channel.send({
+          type: "broadcast",
+          event: "state-request",
+          payload: { senderId: myClientId },
+        });
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setRoomConnected(false);
+        setRoomError("Could not connect to the room. Check your Supabase credentials.");
+      }
+    });
+  }, [
+    supabase,
+    displayName,
+    myClientId,
+    disconnectRoom,
+    applySharedStateSnapshot,
+    broadcastSharedState,
+  ]);
+
+  useEffect(() => {
+    if (!roomConnected) return;
+    broadcastSharedState();
+  }, [roomConnected, broadcastSharedState]);
+
+  useEffect(() => {
+    if (!roomConnected || applyingRemoteRef.current) return;
+    broadcastSharedState();
+  }, [
+    roomConnected,
+    view,
+    deck,
+    customCards,
+    activeCards,
+    currentStory,
+    storyInput,
+    stories,
+    csvStories,
+    storyIndex,
+    votes,
+    originalVotes,
+    revealed,
+    finalEstimate,
+    history,
+    broadcastSharedState,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      disconnectRoom();
+    };
+  }, [disconnectRoom]);
 
   const getJiraAttachmentSrc = useCallback((issueKey, attachmentId) => {
     return `${API_BASE_URL}/api/jira/${encodeURIComponent(issueKey)}/attachment/${encodeURIComponent(attachmentId)}`;
@@ -282,7 +504,9 @@ export default function PlanningPoker() {
     setStoryIndex(0);
     setView("session");
     // Simulate other users voting after a delay
-    simulateVotes(participants);
+    if (!roomConnected) {
+      simulateVotes(participants);
+    }
   };
 
   const simulateVotes = useCallback((currentParticipants) => {
@@ -296,8 +520,9 @@ export default function PlanningPoker() {
   }, [activeCards, participants]);
 
   const castVote = (val) => {
+    if (!displayName.trim()) return;
     setMyVote(val);
-    setVotes(v => ({ ...v, [DEMO_USERS[0]]: val }));
+    setVotes(v => ({ ...v, [displayName.trim()]: val }));
   };
 
   const reveal = () => {
@@ -335,11 +560,11 @@ export default function PlanningPoker() {
     const restoredVotes = { ...(existing.votes || {}) };
     setVotes(restoredVotes);
     setOriginalVotes(restoredVotes);
-    setMyVote(restoredVotes[DEMO_USERS[0]] || null);
+    setMyVote(restoredVotes[displayName.trim()] || null);
     setRevealed(true);
     setFinalEstimate(existing.result || "");
     return true;
-  }, [history]);
+  }, [history, displayName]);
 
   const nextStory = () => {
     const next = storyIndex + 1;
@@ -359,7 +584,9 @@ export default function PlanningPoker() {
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
-    simulateVotes(participants);
+    if (!roomConnected) {
+      simulateVotes(participants);
+    }
   };
 
   const previousStory = () => {
@@ -380,7 +607,9 @@ export default function PlanningPoker() {
     setMyVote(null);
     setRevealed(false);
     setFinalEstimate("");
-    simulateVotes();
+    if (!roomConnected) {
+      simulateVotes();
+    }
   };
 
   const endSession = () => {
@@ -619,6 +848,72 @@ export default function PlanningPoker() {
             Configure your planning poker session for the team.
           </p>
 
+          <div className="app-panel" style={{ padding: 14, borderRadius: 12, marginBottom: 20 }}>
+            <div className="app-muted-text" style={{ fontSize: 11, marginBottom: 8, fontWeight: 700, letterSpacing: 0.6 }}>
+              Realtime Room (Phase 2)
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <input
+                className="app-input"
+                placeholder="Your display name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                style={{ padding: "8px 12px", borderRadius: 8, fontSize: 13 }}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  className="app-input"
+                  placeholder="Room code"
+                  value={roomCodeInput}
+                  onChange={(e) => setRoomCodeInput(normalizeRoomCode(e.target.value))}
+                  style={{ flex: 1, padding: "8px 12px", borderRadius: 8, fontSize: 13, letterSpacing: 1.1 }}
+                />
+                <button
+                  onClick={() => setRoomCodeInput(generateRoomCode())}
+                  className="app-secondary-button"
+                  style={{ padding: "8px 12px", fontSize: 12, fontWeight: 700 }}
+                >
+                  New
+                </button>
+                <button
+                  onClick={() => connectRoom(roomCodeInput)}
+                  style={{
+                    padding: "8px 14px", borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    background: "rgba(99,102,241,0.2)", border: "1px solid #6366f1", color: "#a5b4fc",
+                  }}
+                >
+                  Join
+                </button>
+                {roomConnected && (
+                  <button
+                    onClick={disconnectRoom}
+                    style={{
+                      padding: "8px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700,
+                      background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.35)", color: "#fca5a5",
+                    }}
+                  >
+                    Leave
+                  </button>
+                )}
+              </div>
+              {roomConnected ? (
+                <div style={{ fontSize: 12, color: "#6ee7b7" }}>
+                  Connected to room <strong>{roomCode}</strong>. Share this code with your team.
+                </div>
+              ) : (
+                <div className="app-subtle-text" style={{ fontSize: 12 }}>
+                  Local mode is still available if you do not join a room.
+                </div>
+              )}
+              {roomError && <div style={{ fontSize: 12, color: "#fca5a5" }}>{roomError}</div>}
+              {!SUPABASE_URL || !SUPABASE_ANON_KEY ? (
+                <div style={{ fontSize: 12, color: "#fbbf24" }}>
+                  Supabase env vars are missing. Realtime room mode will not connect until configured.
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           {/* Tabs */}
           <div style={{ display: "flex", gap: 2, marginBottom: 24, borderBottom: `1px solid ${theme.headerBorder}` }}>
             {[["deck", "🃏 Deck"], ["stories", "📋 Stories"], ["participants", "👥 Participants"]].map(([key, label]) => (
@@ -811,7 +1106,9 @@ export default function PlanningPoker() {
           {tab === "participants" && (
             <div style={{ animation: "slideUp 0.2s ease" }}>
               <div style={{ fontSize: 12, color: "#475569", marginBottom: 12 }}>
-                In Teams, participants join automatically when they open the tab in the channel.
+                {roomConnected
+                  ? "Participants are synced from the realtime room presence list."
+                  : "In local mode, participants are editable for demo testing."}
               </div>
               {participants.map((p, i) => (
                 <div key={i} className="app-panel" style={{
@@ -825,7 +1122,7 @@ export default function PlanningPoker() {
                     flexShrink: 0,
                   }}>{p[0]}</div>
                   <span style={{ fontSize: 13, color: theme.mutedText, flex: 1 }}>{p}</span>
-                  {i === 0
+                  {(roomConnected || p === displayName.trim())
                     ? <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>
                     : <button onClick={() => setParticipants(ps => ps.filter((_, j) => j !== i))} style={{
                         background: "none", border: "none", color: "#475569", fontSize: 18,
@@ -834,33 +1131,35 @@ export default function PlanningPoker() {
                   }
                 </div>
               ))}
-              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <input
-                  placeholder="Add participant name..."
-                  value={participantInput}
-                  onChange={e => setParticipantInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && participantInput.trim() && !participants.includes(participantInput.trim())) {
+              {!roomConnected && (
+                <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                  <input
+                    placeholder="Add participant name..."
+                    value={participantInput}
+                    onChange={e => setParticipantInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && participantInput.trim() && !participants.includes(participantInput.trim())) {
+                        setParticipants(ps => [...ps, participantInput.trim()]);
+                        setParticipantInput("");
+                      }
+                    }}
+                    style={{
+                      flex: 1, padding: "8px 12px",
+                      background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: 8, color: "#e2e8f0", fontSize: 13,
+                    }}
+                  />
+                  <button onClick={() => {
+                    if (participantInput.trim() && !participants.includes(participantInput.trim())) {
                       setParticipants(ps => [...ps, participantInput.trim()]);
                       setParticipantInput("");
                     }
-                  }}
-                  style={{
-                    flex: 1, padding: "8px 12px",
-                    background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 8, color: "#e2e8f0", fontSize: 13,
-                  }}
-                />
-                <button onClick={() => {
-                  if (participantInput.trim() && !participants.includes(participantInput.trim())) {
-                    setParticipants(ps => [...ps, participantInput.trim()]);
-                    setParticipantInput("");
-                  }
-                }} style={{
-                  padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600,
-                  background: "rgba(99,102,241,0.2)", border: "1px solid #6366f1", color: "#a5b4fc",
-                }}>+ Add</button>
-              </div>
+                  }} style={{
+                    padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                    background: "rgba(99,102,241,0.2)", border: "1px solid #6366f1", color: "#a5b4fc",
+                  }}>+ Add</button>
+                </div>
+              )}
             </div>
           )}
 
