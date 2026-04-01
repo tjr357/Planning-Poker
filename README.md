@@ -109,6 +109,29 @@ npm run build
 npm run preview
 ```
 
+## 3) Host UI For Free On GitHub Pages (No Teams Bot Required)
+
+This is the fastest path to let coworkers start testing immediately.
+
+1. Enable GitHub Pages in your repository settings:
+  - Settings -> Pages
+  - Source: GitHub Actions
+2. Push this branch (`host_in_github_spike`) to GitHub.
+3. Wait for the workflow `Deploy Planning Poker UI to GitHub Pages` to finish.
+4. Open the published app at:
+  - `https://<org-or-user>.github.io/Planning-Poker/`
+
+Manual deployment option (from `planning-poker-ui/`):
+
+```bash
+npm run deploy
+```
+
+Notes:
+- The current hosted UI is great for immediate UX testing.
+- Real-time shared voting between multiple browser users is not implemented yet in the web UI (current session state is local to each browser).
+- Teams bot integration can be added later when bot registration access is available.
+
 ## Local Bot Testing (No Teams Required)
 
 Interactive single-user REPL:
