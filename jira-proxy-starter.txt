@@ -1,0 +1,159 @@
+Supabase Edge Function starter for Jira proxy
+
+File: supabase/functions/jira-proxy/index.ts
+
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+  "Content-Type": "application/json",
+};
+
+const JIRA_BASE_URL = (Deno.env.get("JIRA_BASE_URL") || "").replace(/\/$/, "");
+const JIRA_EMAIL = Deno.env.get("JIRA_EMAIL") || "";
+const JIRA_API_TOKEN = Deno.env.get("JIRA_API_TOKEN") || "";
+
+function json(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), { status, headers: corsHeaders });
+}
+
+function isConfigured() {
+  return Boolean(JIRA_BASE_URL && JIRA_EMAIL && JIRA_API_TOKEN);
+}
+
+function authHeader() {
+  const basic = btoa(`${JIRA_EMAIL}:${JIRA_API_TOKEN}`);
+  return { Authorization: `Basic ${basic}`, Accept: "application/json" };
+}
+
+function parseIssueKey(raw: string) {
+  const match = String(raw || "").toUpperCase().match(/([A-Z][A-Z0-9]+-\d+)/);
+  return match ? match[1] : null;
+}
+
+function stripBase(pathname: string) {
+  const marker = "/jira-proxy";
+  const i = pathname.indexOf(marker);
+  if (i === -1) return pathname;
+  return pathname.slice(i + marker.length) || "/";
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  if (!isConfigured()) {
+    return json(500, { ok: false, error: "Jira environment variables are not configured." });
+  }
+
+  try {
+    const url = new URL(req.url);
+    const path = stripBase(url.pathname);
+
+    const issueMatch = path.match(/^\/api\/jira\/([^/]+)$/);
+    const filterMatch = path.match(/^\/api\/jira\/filter\/([^/]+)$/);
+
+    if (issueMatch && req.method === "GET") {
+      const issueKey = parseIssueKey(decodeURIComponent(issueMatch[1]));
+      if (!issueKey) return json(400, { ok: false, error: "Invalid issue key." });
+
+      const jiraUrl = `${JIRA_BASE_URL}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=summary,status,issuetype,assignee,priority,description`;
+      const jiraRes = await fetch(jiraUrl, { headers: authHeader() });
+
+      if (!jiraRes.ok) {
+        const msg = await jiraRes.text();
+        return json(502, { ok: false, error: `Jira ${jiraRes.status}: ${msg.slice(0, 200)}` });
+      }
+
+      const data = await jiraRes.json();
+      const f = data.fields || {};
+
+      return json(200, {
+        ok: true,
+        issue: {
+          key: data.key,
+          summary: f.summary || "(no summary)",
+          issueType: f.issuetype?.name || "Unknown",
+          status: f.status?.name || "Unknown",
+          assignee: f.assignee?.displayName || "Unassigned",
+          priority: f.priority?.name || "Unknown",
+          description: typeof f.description === "string" ? f.description : "",
+          url: `${JIRA_BASE_URL}/browse/${data.key}`,
+        },
+      });
+    }
+
+    if (filterMatch && req.method === "GET") {
+      const filterRef = decodeURIComponent(filterMatch[1] || "");
+      const maxResults = Math.max(1, Math.min(200, Number(url.searchParams.get("maxResults") || "50")));
+
+      const filterUrl = `${JIRA_BASE_URL}/rest/api/3/filter/${encodeURIComponent(filterRef)}`;
+      const filterRes = await fetch(filterUrl, { headers: authHeader() });
+
+      if (!filterRes.ok) {
+        const msg = await filterRes.text();
+        return json(502, { ok: false, error: `Filter lookup failed ${filterRes.status}: ${msg.slice(0, 200)}` });
+      }
+
+      const filter = await filterRes.json();
+      const jql = String(filter.jql || "").trim();
+      if (!jql) return json(400, { ok: false, error: "Filter has no JQL." });
+
+      const searchUrl = `${JIRA_BASE_URL}/rest/api/3/search`;
+      const searchRes = await fetch(searchUrl, {
+        method: "POST",
+        headers: { ...authHeader(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jql,
+          maxResults,
+          fields: ["summary", "status", "issuetype", "parent"],
+        }),
+      });
+
+      if (!searchRes.ok) {
+        const msg = await searchRes.text();
+        return json(502, { ok: false, error: `Search failed ${searchRes.status}: ${msg.slice(0, 200)}` });
+      }
+
+      const search = await searchRes.json();
+      const issues = (search.issues || []).map((i: any) => ({
+        key: i.key,
+        summary: i.fields?.summary || "(no summary)",
+        issueType: i.fields?.issuetype?.name || "Unknown",
+        status: i.fields?.status?.name || "Unknown",
+        parentKey: i.fields?.parent?.key || null,
+        parentSummary: i.fields?.parent?.fields?.summary || null,
+        url: `${JIRA_BASE_URL}/browse/${i.key}`,
+      }));
+
+      return json(200, {
+        ok: true,
+        filterId: filter.id || filterRef,
+        filterName: filter.name || null,
+        issues,
+      });
+    }
+
+    return json(404, { ok: false, error: "Not found." });
+  } catch (err) {
+    return json(500, { ok: false, error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+
+Supabase config snippet (supabase/config.toml)
+
+[functions.jira-proxy]
+verify_jwt = false
+
+
+Required Supabase secrets
+- JIRA_BASE_URL
+- JIRA_EMAIL
+- JIRA_API_TOKEN
+
+Frontend env for hosted app
+- VITE_API_BASE_URL=https://YOUR_PROJECT_REF.supabase.co/functions/v1/jira-proxy

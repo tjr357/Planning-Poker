@@ -10,7 +10,7 @@ const PRESET_DECKS = {
 };
 
 const DEMO_USERS = ["Alex", "Jordan", "Sam", "Riley", "Morgan"];
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3978";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:3978").replace(/\/$/, "");
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const DEFAULT_JIRA_SECTION_STATE = {
@@ -33,6 +33,22 @@ function generateRoomCode() {
 function extractIssueKey(text) {
   const match = String(text || "").toUpperCase().match(/([A-Z][A-Z0-9]+-\d+)/);
   return match ? match[1] : null;
+}
+
+function getJiraApiConfigErrorMessage() {
+  if (!API_BASE_URL) {
+    return "Jira API base URL is not configured. Set VITE_API_BASE_URL to your bot/API host.";
+  }
+
+  if (typeof window !== "undefined" && window.location.protocol === "https:" && API_BASE_URL.startsWith("http://")) {
+    return "Jira API URL uses http while this app runs on https. Use an https API URL for VITE_API_BASE_URL.";
+  }
+
+  if (API_BASE_URL.includes("localhost") && typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    return "Jira API points to localhost. Set VITE_API_BASE_URL to a public API host for shared testing.";
+  }
+
+  return "";
 }
 
 function CardBack() {
@@ -475,6 +491,14 @@ export default function PlanningPoker() {
       return;
     }
 
+    const configError = getJiraApiConfigErrorMessage();
+    if (configError) {
+      setJiraIssue(null);
+      setJiraError(configError);
+      setJiraLoading(false);
+      return;
+    }
+
     setJiraLoading(true);
     setJiraError("");
     try {
@@ -486,7 +510,7 @@ export default function PlanningPoker() {
       setJiraIssue(payload.issue);
     } catch (error) {
       setJiraIssue(null);
-      setJiraError(error.message || "Failed to load Jira issue");
+      setJiraError(`Failed to load Jira issue. ${error.message || "Network request failed."}`);
     } finally {
       setJiraLoading(false);
     }
@@ -640,6 +664,14 @@ export default function PlanningPoker() {
   const loadStoriesFromJiraFilter = async () => {
     const ref = jiraFilterInput.trim();
     if (!ref) return;
+
+    const configError = getJiraApiConfigErrorMessage();
+    if (configError) {
+      setJiraFilterError(configError);
+      setJiraFilterInfo("");
+      return;
+    }
+
     setJiraFilterLoading(true);
     setJiraFilterError("");
     setJiraFilterInfo("");
@@ -653,7 +685,7 @@ export default function PlanningPoker() {
       setCsvStories(imported);
       setJiraFilterInfo(`Loaded ${imported.length} stories from ${payload.filterName || payload.filterId || ref}`);
     } catch (error) {
-      setJiraFilterError(error.message || "Failed to load Jira filter");
+      setJiraFilterError(`Failed to load Jira filter. ${error.message || "Network request failed."}`);
     } finally {
       setJiraFilterLoading(false);
     }

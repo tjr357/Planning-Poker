@@ -142,6 +142,8 @@ Notes:
 - The current hosted UI is great for immediate UX testing.
 - Real-time shared voting is available in the hosted UI when Supabase env vars are configured.
 - To use realtime on GitHub Pages, add repository secrets `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` so the build can inject them.
+- To load Jira details from the hosted UI, add `VITE_API_BASE_URL` (for example `https://your-api-host.onrender.com`) so the frontend can call `/api/jira/...` on a reachable backend.
+- If the hosted app uses `https://`, `VITE_API_BASE_URL` must also be `https://`.
 - Teams bot integration can be added later when bot registration access is available.
 
 ## Local Bot Testing (No Teams Required)
