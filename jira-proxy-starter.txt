@@ -312,11 +312,9 @@ async function fetchFilter(filterRef: string, maxResults = 100): Promise<FetchFi
 }
 
 function stripBase(pathname: string) {
-  const parts = pathname.split("/").filter(Boolean);
-  const v1Index = parts.indexOf("v1");
-  if (v1Index === -1) return pathname;
-  const remaining = parts.slice(v1Index + 2);
-  return "/" + remaining.join("/");
+  const apiIndex = pathname.indexOf("/api/");
+  if (apiIndex >= 0) return pathname.slice(apiIndex);
+  return pathname;
 }
 
 serve(async (req) => {
