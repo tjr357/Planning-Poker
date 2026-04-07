@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
+import { createClient } from "@supabase/supabase-js";
 
 const PRESET_DECKS = {
   fibonacci: { label: "Fibonacci", cards: ["1", "3", "5", "8", "13", "?", "☕"] },
@@ -9,7 +10,9 @@ const PRESET_DECKS = {
 };
 
 const DEMO_USERS = ["Alex", "Jordan", "Sam", "Riley", "Morgan"];
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3978";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:3978").replace(/\/$/, "");
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const DEFAULT_JIRA_SECTION_STATE = {
   description: true,
   acceptanceCriteria: true,
@@ -17,6 +20,15 @@ const DEFAULT_JIRA_SECTION_STATE = {
   notes: true,
   images: true,
 };
+
+function normalizeRoomCode(value) {
+  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+}
+
+function generateRoomCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+}
 
 function extractIssueKey(text) {
   const match = String(text || "").toUpperCase().match(/([A-Z][A-Z0-9]+-\d+)/);
@@ -188,6 +200,12 @@ VoteSlot.propTypes = {
 };
 
 export default function PlanningPoker() {
+  const myClientId = useMemo(() => `u-${Math.random().toString(36).slice(2, 10)}`, []);
+  const [displayName, setDisplayName] = useState(() => localStorage.getItem("pp_display_name") || "");
+  const [roomCodeInput, setRoomCodeInput] = useState("");
+  const [roomCode, setRoomCode] = useState("");
+  const [roomError, setRoomError] = useState("");
+  const [roomConnected, setRoomConnected] = useState(false);
   const [view, setView] = useState("lobby"); // lobby | session | results
   const [deck, setDeck] = useState("fibonacci");
   const [customCards, setCustomCards] = useState("");
