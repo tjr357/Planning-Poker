@@ -92,7 +92,9 @@ function PokerCard({ value, selected, onClick, revealed, small }) {
   );
 }
 
-function VoteSlot({ name, voted, value, revealed, originalValue }) {
+function VoteSlot({ name, voted, value, revealed, originalValue, changed, highlightChanged }) {
+  const showChangedHighlight = Boolean(voted && changed && highlightChanged);
+
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 69, // This is the highest width to get 5 people on one row (nice)
@@ -104,9 +106,13 @@ function VoteSlot({ name, voted, value, revealed, originalValue }) {
               width: "100%", height: "100%", borderRadius: 10,
               background: "linear-gradient(135deg, #059669, #10b981)",
               display: "flex", alignItems: "center", justifyContent: "center",
-              border: "2px solid #34d399",
-              boxShadow: "0 0 16px rgba(52,211,153,0.4)",
-              animation: "flipIn 0.4s ease",
+              border: showChangedHighlight ? "2px solid #f59e0b" : "2px solid #34d399",
+              boxShadow: showChangedHighlight
+                ? "0 0 18px rgba(245,158,11,0.52), 0 0 0 1px rgba(245,158,11,0.3)"
+                : "0 0 16px rgba(52,211,153,0.4)",
+              transform: showChangedHighlight ? "scale(1.16)" : "scale(1)",
+              animation: showChangedHighlight ? "voteChangedPulse 0.32s ease" : "flipIn 0.4s ease",
+              transition: "transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease",
             }}>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", lineHeight: 1.1 }}>
                 <span style={{
@@ -126,7 +132,14 @@ function VoteSlot({ name, voted, value, revealed, originalValue }) {
               </div>
             </div>
           ) : (
-            <div style={{ width: "100%", height: "100%" }}>
+            <div style={{
+              width: "100%", height: "100%",
+              transform: showChangedHighlight ? "scale(1.16)" : "scale(1)",
+              borderRadius: 10,
+              border: showChangedHighlight ? "2px solid #f59e0b" : "2px solid transparent",
+              boxShadow: showChangedHighlight ? "0 0 14px rgba(245,158,11,0.4)" : "none",
+              transition: "transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease",
+            }}>
               <CardBack />
             </div>
           )
@@ -170,6 +183,8 @@ VoteSlot.propTypes = {
   value: PropTypes.string,
   revealed: PropTypes.bool,
   originalValue: PropTypes.string,
+  changed: PropTypes.bool,
+  highlightChanged: PropTypes.bool,
 };
 
 export default function PlanningPoker() {
@@ -184,10 +199,12 @@ export default function PlanningPoker() {
   const [csvStories, setCsvStories] = useState([]);
   const [storyIndex, setStoryIndex] = useState(0);
   const [votes, setVotes] = useState({}); // { username: value }
+  const [changedVotes, setChangedVotes] = useState({}); // { username: true } when user changed from a previous vote
   const [originalVotes, setOriginalVotes] = useState({}); // Snapshot taken at reveal
   const [myVote, setMyVote] = useState(null);
   const [revealed, setRevealed] = useState(false);
   const [finalEstimate, setFinalEstimate] = useState("");
+  const [highlightChangedVotes, setHighlightChangedVotes] = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
   const [participants, setParticipants] = useState(DEMO_USERS);
   const [participantInput, setParticipantInput] = useState("");
@@ -203,8 +220,257 @@ export default function PlanningPoker() {
   const [jiraSectionsOpen, setJiraSectionsOpen] = useState(DEFAULT_JIRA_SECTION_STATE);
   const [tab, setTab] = useState("deck"); // deck | stories | participants
   const fileRef = useRef();
+  const channelRef = useRef(null);
+  const applyingRemoteRef = useRef(false);
+  const previousVotesRef = useRef({});
+
+  const effectiveVoterName = useMemo(() => {
+    const trimmed = displayName.trim();
+    if (trimmed) return trimmed;
+    if (!roomConnected) return participants[0] || "";
+    return "";
+  }, [displayName, participants, roomConnected]);
+
+  const supabase = useMemo(() => {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return null;
+    }
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }, []);
 
   const allStories = [...csvStories, ...stories];
+
+  useEffect(() => {
+    if (displayName.trim()) {
+      localStorage.setItem("pp_display_name", displayName.trim());
+    }
+  }, [displayName]);
+
+  useEffect(() => {
+    setMyVote((effectiveVoterName && votes[effectiveVoterName]) || null);
+  }, [votes, effectiveVoterName]);
+
+  useEffect(() => {
+    const previousVotes = previousVotesRef.current || {};
+
+    setChangedVotes((current) => {
+      if (!votes || Object.keys(votes).length === 0) {
+        return {};
+      }
+
+      const next = { ...current };
+
+      Object.entries(votes).forEach(([name, value]) => {
+        const previousValue = previousVotes[name];
+        if (previousValue !== undefined && previousValue !== value) {
+          next[name] = true;
+        }
+      });
+
+      Object.keys(next).forEach((name) => {
+        if (!(name in votes)) {
+          delete next[name];
+        }
+      });
+
+      return next;
+    });
+
+    previousVotesRef.current = votes;
+  }, [votes]);
+
+  const getSharedStateSnapshot = useCallback(() => ({
+    view,
+    deck,
+    customCards,
+    activeCards,
+    currentStory,
+    storyInput,
+    stories,
+    csvStories,
+    storyIndex,
+    votes,
+    changedVotes,
+    originalVotes,
+    revealed,
+    finalEstimate,
+    highlightChangedVotes,
+    history,
+  }), [
+    view,
+    deck,
+    customCards,
+    activeCards,
+    currentStory,
+    storyInput,
+    stories,
+    csvStories,
+    storyIndex,
+    votes,
+    changedVotes,
+    originalVotes,
+    revealed,
+    finalEstimate,
+    highlightChangedVotes,
+    history,
+  ]);
+
+  const applySharedStateSnapshot = useCallback((state) => {
+    if (!state || typeof state !== "object") return;
+    applyingRemoteRef.current = true;
+    setView(state.view || "lobby");
+    setDeck(state.deck || "fibonacci");
+    setCustomCards(state.customCards || "");
+    setActiveCards(Array.isArray(state.activeCards) && state.activeCards.length
+      ? state.activeCards
+      : PRESET_DECKS.fibonacci.cards);
+    setCurrentStory(state.currentStory || "");
+    setStoryInput(state.storyInput || "");
+    setStories(Array.isArray(state.stories) ? state.stories : []);
+    setCsvStories(Array.isArray(state.csvStories) ? state.csvStories : []);
+    setStoryIndex(Number.isInteger(state.storyIndex) ? state.storyIndex : 0);
+    setVotes(state.votes && typeof state.votes === "object" ? state.votes : {});
+    setChangedVotes(state.changedVotes && typeof state.changedVotes === "object" ? state.changedVotes : {});
+    setOriginalVotes(state.originalVotes && typeof state.originalVotes === "object" ? state.originalVotes : {});
+    setRevealed(Boolean(state.revealed));
+    setFinalEstimate(state.finalEstimate || "");
+    setHighlightChangedVotes(Boolean(state.highlightChangedVotes));
+    setHistory(Array.isArray(state.history) ? state.history : []);
+    setTimeout(() => {
+      applyingRemoteRef.current = false;
+    }, 0);
+  }, []);
+
+  const broadcastSharedState = useCallback(async () => {
+    const channel = channelRef.current;
+    if (!channel || !roomConnected || applyingRemoteRef.current) return;
+    await channel.send({
+      type: "broadcast",
+      event: "state-sync",
+      payload: {
+        senderId: myClientId,
+        state: getSharedStateSnapshot(),
+      },
+    });
+  }, [getSharedStateSnapshot, myClientId, roomConnected]);
+
+  const disconnectRoom = useCallback(async () => {
+    const channel = channelRef.current;
+    if (channel && supabase) {
+      await supabase.removeChannel(channel);
+    }
+    channelRef.current = null;
+    setRoomConnected(false);
+    setRoomCode("");
+  }, [supabase]);
+
+  const connectRoom = useCallback(async (inputCode) => {
+    if (!supabase) {
+      setRoomError("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
+      return;
+    }
+
+    const name = displayName.trim();
+    if (!name) {
+      setRoomError("Enter your display name before joining a room.");
+      return;
+    }
+
+    const normalizedCode = normalizeRoomCode(inputCode);
+    if (!normalizedCode) {
+      setRoomError("Enter a valid room code.");
+      return;
+    }
+
+    setRoomError("");
+    await disconnectRoom();
+
+    const channel = supabase.channel(`planning-poker:${normalizedCode}`, {
+      config: {
+        broadcast: { self: false },
+        presence: { key: myClientId },
+      },
+    });
+
+    channel
+      .on("broadcast", { event: "state-sync" }, ({ payload }) => {
+        if (!payload || payload.senderId === myClientId) return;
+        applySharedStateSnapshot(payload.state);
+      })
+      .on("broadcast", { event: "state-request" }, ({ payload }) => {
+        if (!payload || payload.senderId === myClientId) return;
+        broadcastSharedState();
+      })
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        const names = Object.values(state)
+          .flat()
+          .map((entry) => entry.name)
+          .filter(Boolean);
+        const uniqueNames = Array.from(new Set(names));
+        setParticipants(uniqueNames.length ? uniqueNames : [name]);
+      });
+
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        channelRef.current = channel;
+        setRoomConnected(true);
+        setRoomCode(normalizedCode);
+        await channel.track({ name });
+        await channel.send({
+          type: "broadcast",
+          event: "state-request",
+          payload: { senderId: myClientId },
+        });
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+        setRoomConnected(false);
+        setRoomError("Could not connect to the room. Check your Supabase credentials.");
+      }
+    });
+  }, [
+    supabase,
+    displayName,
+    myClientId,
+    disconnectRoom,
+    applySharedStateSnapshot,
+    broadcastSharedState,
+  ]);
+
+  useEffect(() => {
+    if (!roomConnected) return;
+    broadcastSharedState();
+  }, [roomConnected, broadcastSharedState]);
+
+  useEffect(() => {
+    if (!roomConnected || applyingRemoteRef.current) return;
+    broadcastSharedState();
+  }, [
+    roomConnected,
+    view,
+    deck,
+    customCards,
+    activeCards,
+    currentStory,
+    storyInput,
+    stories,
+    csvStories,
+    storyIndex,
+    votes,
+    changedVotes,
+    originalVotes,
+    revealed,
+    finalEstimate,
+    highlightChangedVotes,
+    history,
+    broadcastSharedState,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      disconnectRoom();
+    };
+  }, [disconnectRoom]);
 
   const getJiraAttachmentSrc = useCallback((issueKey, attachmentId) => {
     return `${API_BASE_URL}/api/jira/${encodeURIComponent(issueKey)}/attachment/${encodeURIComponent(attachmentId)}`;
@@ -275,6 +541,7 @@ export default function PlanningPoker() {
     setCurrentStory(story);
     loadJiraForStory(story);
     setVotes({});
+    setChangedVotes({});
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
@@ -296,8 +563,9 @@ export default function PlanningPoker() {
   }, [activeCards, participants]);
 
   const castVote = (val) => {
+    if (!effectiveVoterName) return;
     setMyVote(val);
-    setVotes(v => ({ ...v, [DEMO_USERS[0]]: val }));
+    setVotes(v => ({ ...v, [effectiveVoterName]: val }));
   };
 
   const reveal = () => {
@@ -335,11 +603,11 @@ export default function PlanningPoker() {
     const restoredVotes = { ...(existing.votes || {}) };
     setVotes(restoredVotes);
     setOriginalVotes(restoredVotes);
-    setMyVote(restoredVotes[DEMO_USERS[0]] || null);
+    setMyVote((effectiveVoterName && restoredVotes[effectiveVoterName]) || null);
     setRevealed(true);
     setFinalEstimate(existing.result || "");
     return true;
-  }, [history]);
+  }, [history, effectiveVoterName]);
 
   const nextStory = () => {
     const next = storyIndex + 1;
@@ -356,6 +624,7 @@ export default function PlanningPoker() {
     }
 
     setVotes({});
+    setChangedVotes({});
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
@@ -376,6 +645,7 @@ export default function PlanningPoker() {
     }
 
     setVotes({});
+    setChangedVotes({});
     setOriginalVotes({});
     setMyVote(null);
     setRevealed(false);
@@ -567,6 +837,7 @@ export default function PlanningPoker() {
     <div className={`planning-poker-app ${isLightMode ? "light-mode" : "dark-mode"}`} style={styles.app}>
       <style>{`
         @keyframes flipIn { from { transform: rotateY(90deg) scale(0.8); opacity: 0; } to { transform: rotateY(0) scale(1); opacity: 1; } }
+        @keyframes voteChangedPulse { from { transform: scale(1.01); } to { transform: scale(1.16); } }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; }
@@ -825,7 +1096,7 @@ export default function PlanningPoker() {
                     flexShrink: 0,
                   }}>{p[0]}</div>
                   <span style={{ fontSize: 13, color: theme.mutedText, flex: 1 }}>{p}</span>
-                  {i === 0
+                  {(roomConnected || p === effectiveVoterName)
                     ? <span style={{ fontSize: 10, color: "#60a5fa", fontWeight: 600 }}>YOU</span>
                     : <button onClick={() => setParticipants(ps => ps.filter((_, j) => j !== i))} style={{
                         background: "none", border: "none", color: "#475569", fontSize: 18,
@@ -1071,8 +1342,25 @@ export default function PlanningPoker() {
           <div className="app-panel" style={{
             padding: "20px", borderRadius: 12, marginBottom: 24,
           }}>
-            <div className="app-subtle-text" style={{ fontSize: 12, fontWeight: 600, marginBottom: 16, textTransform: "uppercase", letterSpacing: 1 }}>
-              Table
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              marginBottom: 16,
+              flexWrap: "wrap",
+            }}>
+              <div className="app-subtle-text" style={{ fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+                Table
+              </div>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, color: theme.mutedText }}>
+                <input
+                  type="checkbox"
+                  checked={highlightChangedVotes}
+                  onChange={(e) => setHighlightChangedVotes(e.target.checked)}
+                />
+                Highlight changed votes
+              </label>
             </div>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
               {participants.map((p) => (
@@ -1083,6 +1371,8 @@ export default function PlanningPoker() {
                   value={votes[p]}
                   revealed={revealed}
                   originalValue={originalVotes[p]}
+                  changed={!!changedVotes[p]}
+                  highlightChanged={highlightChangedVotes}
                 />
               ))}
             </div>
