@@ -22,6 +22,13 @@
 const { ActivityHandler, MessageFactory, CardFactory, TurnContext } = require("botbuilder");
 const express = require("express");
 const bodyParser = require("body-parser");
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+
+const FIGMA_STATE_TTL_MS = 10 * 60 * 1000;
+const FIGMA_AUTH_STORE_FILE = path.join(__dirname, ".figma-auth-store.json");
+const figmaAuthStates = new Map();
 
 // ─── Session Store (in-memory; swap for Redis/CosmosDB in production) ─────────
 const sessions = new Map(); // conversationId → SessionState
@@ -82,6 +89,288 @@ function jiraConfig() {
     bearerToken: process.env.JIRA_BEARER_TOKEN,
     acceptanceCriteriaField: process.env.JIRA_ACCEPTANCE_CRITERIA_FIELD,
   };
+}
+
+function figmaConfig() {
+  return {
+    clientId: process.env.FIGMA_CLIENT_ID,
+    clientSecret: process.env.FIGMA_CLIENT_SECRET,
+    redirectUri: process.env.FIGMA_REDIRECT_URI,
+    scope: process.env.FIGMA_SCOPE || "file_content:read",
+    encryptionKey: process.env.FIGMA_TOKEN_ENCRYPTION_KEY,
+  };
+}
+
+function hasFigmaConfig(cfg) {
+  return Boolean(cfg.clientId && cfg.clientSecret && cfg.redirectUri && cfg.encryptionKey);
+}
+
+function getFigmaCipherKey(secret) {
+  return crypto.createHash("sha256").update(String(secret || "")).digest();
+}
+
+function encryptTokenData(payload, secret) {
+  const key = getFigmaCipherKey(secret);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const plaintext = Buffer.from(JSON.stringify(payload), "utf8");
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    iv: iv.toString("base64"),
+    ciphertext: ciphertext.toString("base64"),
+    tag: tag.toString("base64"),
+  };
+}
+
+function decryptTokenData(record, secret) {
+  if (!record?.iv || !record?.ciphertext || !record?.tag) return null;
+  const key = getFigmaCipherKey(secret);
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    key,
+    Buffer.from(record.iv, "base64"),
+  );
+  decipher.setAuthTag(Buffer.from(record.tag, "base64"));
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(record.ciphertext, "base64")),
+    decipher.final(),
+  ]);
+  return JSON.parse(decrypted.toString("utf8"));
+}
+
+function readFigmaAuthStore() {
+  try {
+    if (!fs.existsSync(FIGMA_AUTH_STORE_FILE)) {
+      return { byViewerId: {} };
+    }
+    const raw = fs.readFileSync(FIGMA_AUTH_STORE_FILE, "utf8");
+    if (!raw.trim()) return { byViewerId: {} };
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return { byViewerId: {} };
+    if (!parsed.byViewerId || typeof parsed.byViewerId !== "object") {
+      return { byViewerId: {} };
+    }
+    return parsed;
+  } catch (_error) {
+    return { byViewerId: {} };
+  }
+}
+
+function writeFigmaAuthStore(store) {
+  fs.writeFileSync(FIGMA_AUTH_STORE_FILE, JSON.stringify(store, null, 2), "utf8");
+}
+
+function getViewerTokenRecord(viewerId) {
+  if (!viewerId) return null;
+  const store = readFigmaAuthStore();
+  return store.byViewerId?.[viewerId] || null;
+}
+
+function setViewerTokenRecord(viewerId, record) {
+  if (!viewerId) return;
+  const store = readFigmaAuthStore();
+  store.byViewerId = store.byViewerId || {};
+  store.byViewerId[viewerId] = record;
+  writeFigmaAuthStore(store);
+}
+
+function clearViewerTokenRecord(viewerId) {
+  if (!viewerId) return;
+  const store = readFigmaAuthStore();
+  if (store.byViewerId && Object.prototype.hasOwnProperty.call(store.byViewerId, viewerId)) {
+    delete store.byViewerId[viewerId];
+    writeFigmaAuthStore(store);
+  }
+}
+
+function parseCookies(cookieHeader = "") {
+  return String(cookieHeader)
+    .split(";")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .reduce((acc, part) => {
+      const idx = part.indexOf("=");
+      if (idx < 0) return acc;
+      const key = decodeURIComponent(part.slice(0, idx).trim());
+      const value = decodeURIComponent(part.slice(idx + 1).trim());
+      acc[key] = value;
+      return acc;
+    }, {});
+}
+
+function setCookie(res, name, value, options = {}) {
+  const attrs = [
+    `${encodeURIComponent(name)}=${encodeURIComponent(value)}`,
+    `Path=${options.path || "/"}`,
+    `SameSite=${options.sameSite || "Lax"}`,
+  ];
+  if (options.maxAgeSeconds) attrs.push(`Max-Age=${options.maxAgeSeconds}`);
+  if (options.httpOnly !== false) attrs.push("HttpOnly");
+  if (options.secure) attrs.push("Secure");
+  res.setHeader("Set-Cookie", attrs.join("; "));
+}
+
+function ensureViewerId(req, res) {
+  const cookies = parseCookies(req.headers.cookie);
+  const existing = cookies.pp_figma_viewer;
+  if (existing) return existing;
+  const viewerId = crypto.randomUUID();
+  setCookie(res, "pp_figma_viewer", viewerId, { maxAgeSeconds: 60 * 60 * 24 * 365 });
+  return viewerId;
+}
+
+function safeUrl(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    return parsed;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function findFigmaLinks(value, found = new Set()) {
+  if (!value) return found;
+  if (typeof value === "string") {
+    const matches = value.match(/https?:\/\/[^\s)"']+/g) || [];
+    matches.forEach((url) => {
+      const parsed = safeUrl(url);
+      if (parsed && /(^|\.)figma\.com$/i.test(parsed.hostname)) {
+        found.add(parsed.toString());
+      }
+    });
+    return found;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry) => findFigmaLinks(entry, found));
+    return found;
+  }
+
+  if (typeof value === "object") {
+    Object.values(value).forEach((entry) => findFigmaLinks(entry, found));
+  }
+  return found;
+}
+
+function toFigmaEmbedUrl(sourceUrl) {
+  return `https://www.figma.com/embed?embed_host=planning-poker&url=${encodeURIComponent(sourceUrl)}`;
+}
+
+function extractFigmaEmbeds(fields = {}) {
+  const links = Array.from(findFigmaLinks(fields))
+    .filter((url) => /figma\.com\/(file|design|proto)\//i.test(url))
+    .slice(0, 3);
+
+  return links.map((sourceUrl) => ({ sourceUrl, embedUrl: toFigmaEmbedUrl(sourceUrl) }));
+}
+
+function base64UrlEncode(inputBuffer) {
+  return inputBuffer
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function createPkcePair() {
+  const verifier = base64UrlEncode(crypto.randomBytes(32));
+  const challenge = base64UrlEncode(crypto.createHash("sha256").update(verifier).digest());
+  return { verifier, challenge };
+}
+
+function cleanupFigmaAuthStates() {
+  const now = Date.now();
+  for (const [state, item] of figmaAuthStates.entries()) {
+    if (item.expiresAt <= now) figmaAuthStates.delete(state);
+  }
+}
+
+async function exchangeFigmaAuthCode(cfg, code, codeVerifier) {
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: cfg.redirectUri,
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+    code_verifier: codeVerifier,
+  });
+
+  const response = await fetch("https://api.figma.com/v1/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  if (!response.ok) {
+    const bodyText = await response.text();
+    throw new Error(`Figma token exchange failed (${response.status}): ${bodyText.slice(0, 160)}`);
+  }
+
+  return await response.json();
+}
+
+async function refreshFigmaAccessToken(cfg, refreshToken) {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: cfg.clientId,
+    client_secret: cfg.clientSecret,
+  });
+
+  const response = await fetch("https://api.figma.com/v1/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  if (!response.ok) {
+    const bodyText = await response.text();
+    throw new Error(`Figma refresh failed (${response.status}): ${bodyText.slice(0, 160)}`);
+  }
+
+  return await response.json();
+}
+
+async function getViewerFigmaToken(cfg, viewerId) {
+  const encrypted = getViewerTokenRecord(viewerId);
+  if (!encrypted) return null;
+
+  let tokenData;
+  try {
+    tokenData = decryptTokenData(encrypted, cfg.encryptionKey);
+  } catch (_error) {
+    clearViewerTokenRecord(viewerId);
+    return null;
+  }
+
+  if (!tokenData?.accessToken) {
+    clearViewerTokenRecord(viewerId);
+    return null;
+  }
+
+  const now = Date.now();
+  if (Number(tokenData.expiresAt || 0) > now + 60 * 1000) {
+    return tokenData;
+  }
+
+  if (!tokenData.refreshToken) {
+    clearViewerTokenRecord(viewerId);
+    return null;
+  }
+
+  const refreshed = await refreshFigmaAccessToken(cfg, tokenData.refreshToken);
+  const refreshedPayload = {
+    accessToken: refreshed.access_token,
+    refreshToken: refreshed.refresh_token || tokenData.refreshToken,
+    tokenType: refreshed.token_type || "Bearer",
+    scope: refreshed.scope || cfg.scope,
+    expiresAt: Date.now() + Math.max(60, Number(refreshed.expires_in || 3600)) * 1000,
+  };
+
+  setViewerTokenRecord(viewerId, encryptTokenData(refreshedPayload, cfg.encryptionKey));
+  return refreshedPayload;
 }
 
 function hasJiraConfig(cfg) {
@@ -355,6 +644,7 @@ function normalizeJiraIssue(data, baseUrl, cfg = {}) {
   const acceptanceCriteriaHtml = jiraFieldValueToHtml(acceptanceCriteriaValue).trim();
   const linkedIssues = extractLinkedIssues(fields, cleanBase);
   const parentFeature = extractParentFeature(fields, cleanBase);
+  const figmaEmbeds = extractFigmaEmbeds(fields);
 
   return {
     key: data.key,
@@ -367,6 +657,7 @@ function normalizeJiraIssue(data, baseUrl, cfg = {}) {
     description: jiraRichTextToPlain(fields.description).trim() || "(no description)",
     notes,
     images,
+    figmaEmbeds,
     status: fields.status?.name || "Unknown",
     assignee: fields.assignee?.displayName || "Unassigned",
     priority: fields.priority?.name || "Unknown",
@@ -894,9 +1185,11 @@ module.exports = function createServer(adapter) {
   app.use(bodyParser.json());
 
   app.use((req, res, next) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin;
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
     if (req.method === "OPTIONS") return res.sendStatus(204);
     next();
   });
@@ -980,6 +1273,114 @@ module.exports = function createServer(adapter) {
     } catch (error) {
       return res.status(502).json({ ok: false, error: formatFetchError(error) });
     }
+  });
+
+  app.get("/api/figma/auth/status", async (req, res) => {
+    const cfg = figmaConfig();
+    if (!hasFigmaConfig(cfg)) {
+      return res.json({ ok: true, configured: false, authenticated: false });
+    }
+
+    const viewerId = ensureViewerId(req, res);
+    try {
+      const token = await getViewerFigmaToken(cfg, viewerId);
+      return res.json({ ok: true, configured: true, authenticated: Boolean(token) });
+    } catch (error) {
+      return res.status(500).json({ ok: false, error: formatFetchError(error) });
+    }
+  });
+
+  app.get("/api/figma/auth/start", (req, res) => {
+    const cfg = figmaConfig();
+    if (!hasFigmaConfig(cfg)) {
+      return res.status(500).send("Figma auth not configured.");
+    }
+
+    cleanupFigmaAuthStates();
+    const viewerId = ensureViewerId(req, res);
+    const state = base64UrlEncode(crypto.randomBytes(24));
+    const { verifier, challenge } = createPkcePair();
+    const returnTo = String(req.query.returnTo || "").slice(0, 600);
+    const returnOrigin = String(req.query.returnOrigin || "").slice(0, 200);
+
+    figmaAuthStates.set(state, {
+      viewerId,
+      codeVerifier: verifier,
+      returnTo,
+      returnOrigin,
+      expiresAt: Date.now() + FIGMA_STATE_TTL_MS,
+    });
+
+    const authUrl = new URL("https://www.figma.com/oauth");
+    authUrl.searchParams.set("client_id", cfg.clientId);
+    authUrl.searchParams.set("redirect_uri", cfg.redirectUri);
+    authUrl.searchParams.set("scope", cfg.scope);
+    authUrl.searchParams.set("state", state);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("code_challenge", challenge);
+    authUrl.searchParams.set("code_challenge_method", "S256");
+
+    return res.redirect(authUrl.toString());
+  });
+
+  app.get("/api/figma/auth/callback", async (req, res) => {
+    const cfg = figmaConfig();
+    if (!hasFigmaConfig(cfg)) {
+      return res.status(500).send("Figma auth not configured.");
+    }
+
+    cleanupFigmaAuthStates();
+    const state = String(req.query.state || "");
+    const code = String(req.query.code || "");
+    const storedState = figmaAuthStates.get(state);
+    figmaAuthStates.delete(state);
+
+    if (!storedState || !code || storedState.expiresAt < Date.now()) {
+      return res.status(400).send("Invalid or expired Figma auth state.");
+    }
+
+    try {
+      const token = await exchangeFigmaAuthCode(cfg, code, storedState.codeVerifier);
+      const tokenPayload = {
+        accessToken: token.access_token,
+        refreshToken: token.refresh_token,
+        tokenType: token.token_type || "Bearer",
+        scope: token.scope || cfg.scope,
+        expiresAt: Date.now() + Math.max(60, Number(token.expires_in || 3600)) * 1000,
+      };
+      setViewerTokenRecord(storedState.viewerId, encryptTokenData(tokenPayload, cfg.encryptionKey));
+
+      const safeReturnTo = (() => {
+        const parsed = safeUrl(storedState.returnTo);
+        return parsed ? parsed.toString() : "";
+      })();
+      const safeReturnOrigin = (() => {
+        const parsed = safeUrl(storedState.returnOrigin);
+        return parsed ? parsed.origin : "*";
+      })();
+
+      if (safeReturnTo) {
+        return res.redirect(safeReturnTo);
+      }
+
+      const html = [
+        "<!doctype html>",
+        "<html><head><meta charset=\"utf-8\"><title>Figma Login Complete</title></head>",
+        "<body style=\"font-family:Segoe UI,Arial,sans-serif;padding:24px\">",
+        "<h2>Figma connected</h2><p>You can close this window.</p>",
+        `<script>if(window.opener){window.opener.postMessage({type:'figma-auth-complete',ok:true}, ${JSON.stringify(safeReturnOrigin)});}window.close();</script>`,
+        "</body></html>",
+      ].join("");
+      return res.status(200).send(html);
+    } catch (error) {
+      return res.status(502).send(`Figma login failed: ${escapeHtml(formatFetchError(error))}`);
+    }
+  });
+
+  app.post("/api/figma/auth/logout", (req, res) => {
+    const viewerId = ensureViewerId(req, res);
+    clearViewerTokenRecord(viewerId);
+    return res.json({ ok: true });
   });
 
   app.get("/health", (_, res) => res.json({ status: "ok" }));
