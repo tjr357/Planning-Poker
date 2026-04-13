@@ -387,12 +387,49 @@ export default function PlanningPoker() {
     simulateVotes();
   };
 
+  const getCurrentStoryResult = () => {
+    const explicitEstimate = String(finalEstimate || "").trim();
+    if (explicitEstimate) return explicitEstimate;
+
+    const numericVotes = Object.values(votes)
+      .filter((value) => !isNaN(parseFloat(value)))
+      .map((value) => parseFloat(value));
+    if (!numericVotes.length) return "?";
+
+    const average = numericVotes.reduce((sum, value) => sum + value, 0) / numericVotes.length;
+    const numericDeck = activeCards
+      .filter((card) => !isNaN(parseFloat(card)))
+      .map((card) => parseFloat(card));
+
+    if (!numericDeck.length) return String(Math.round(average));
+    const nearest = numericDeck.reduce((closest, candidate) => (
+      Math.abs(candidate - average) < Math.abs(closest - average) ? candidate : closest
+    ), numericDeck[0]);
+    return String(nearest);
+  };
+
   const endSession = () => {
-    // Save current story if it has been revealed and voted on
-    const updatedHistory = revealed && myVote
-      ? [...history, { story: currentStory, votes: { ...votes }, result: getConsensus() }]
-      : history;
-    setHistory(updatedHistory);
+    const shouldPersistCurrentStory = Boolean(
+      currentStory && (revealed || myVote || finalEstimate || Object.keys(votes).length > 0)
+    );
+
+    if (shouldPersistCurrentStory) {
+      const snapshot = {
+        story: currentStory,
+        votes: { ...votes },
+        result: getCurrentStoryResult(),
+      };
+
+      setHistory((existingHistory) => {
+        const existingIndex = existingHistory.findIndex((item) => item.story === currentStory);
+        if (existingIndex >= 0) {
+          const updated = [...existingHistory];
+          updated[existingIndex] = snapshot;
+          return updated;
+        }
+        return [...existingHistory, snapshot];
+      });
+    }
     setView("summary");
   };
 
