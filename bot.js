@@ -258,9 +258,22 @@ function toFigmaEmbedUrl(sourceUrl) {
   return `https://www.figma.com/embed?embed_host=planning-poker&url=${encodeURIComponent(sourceUrl)}`;
 }
 
-function extractFigmaEmbeds(fields = {}) {
-  const links = Array.from(findFigmaLinks(fields))
-    .filter((url) => /figma\.com\/(file|design|proto)\//i.test(url))
+function extractFigmaEmbeds(fields = {}, remoteLinks = []) {
+  const found = findFigmaLinks(fields);
+
+  // Also search remote/web links (added via Figma for Jira or manually)
+  for (const rl of remoteLinks) {
+    const objectUrl = rl?.object?.url;
+    if (typeof objectUrl === "string") {
+      const parsed = safeUrl(objectUrl);
+      if (parsed && /(^|\.)figma\.com$/i.test(parsed.hostname)) {
+        found.add(parsed.toString());
+      }
+    }
+  }
+
+  const links = Array.from(found)
+    .filter((url) => /figma\.com\/(file|design|proto|board)\//i.test(url))
     .slice(0, 3);
 
   return links.map((sourceUrl) => ({ sourceUrl, embedUrl: toFigmaEmbedUrl(sourceUrl) }));
@@ -644,7 +657,7 @@ function normalizeJiraIssue(data, baseUrl, cfg = {}) {
   const acceptanceCriteriaHtml = jiraFieldValueToHtml(acceptanceCriteriaValue).trim();
   const linkedIssues = extractLinkedIssues(fields, cleanBase);
   const parentFeature = extractParentFeature(fields, cleanBase);
-  const figmaEmbeds = extractFigmaEmbeds(fields);
+  const figmaEmbeds = extractFigmaEmbeds(fields, data.remoteLinks || []);
 
   return {
     key: data.key,
@@ -672,17 +685,25 @@ async function fetchJiraIssue(issueKey) {
   }
 
   const cleanBase = cfg.baseUrl.replace(/\/$/, "");
-  const url = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=*all&expand=names`;
+  const issueUrl = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=*all&expand=names`;
+  const remoteLinksUrl = `${cleanBase}/rest/api/3/issue/${encodeURIComponent(issueKey)}/remotelink`;
 
   const headers = jiraAuthHeaders(cfg);
 
   try {
-    const response = await fetch(url, { method: "GET", headers });
-    if (!response.ok) {
-      const body = await response.text();
-      return { ok: false, error: `Jira ${response.status}: ${body.slice(0, 180)}` };
+    const [issueResponse, remoteLinksResponse] = await Promise.all([
+      fetch(issueUrl, { method: "GET", headers }),
+      fetch(remoteLinksUrl, { method: "GET", headers }),
+    ]);
+
+    if (!issueResponse.ok) {
+      const body = await issueResponse.text();
+      return { ok: false, error: `Jira ${issueResponse.status}: ${body.slice(0, 180)}` };
     }
-    const data = await response.json();
+
+    const data = await issueResponse.json();
+    data.remoteLinks = remoteLinksResponse.ok ? await remoteLinksResponse.json() : [];
+
     return {
       ok: true,
       issue: normalizeJiraIssue(data, cleanBase, cfg),
